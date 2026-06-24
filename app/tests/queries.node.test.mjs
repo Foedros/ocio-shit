@@ -99,6 +99,18 @@ check('alta dedup: misma obra reutilizada', r2.obraId === r1.obraId && r2.obraCr
 check('alta dedup: numReconsumo=1', r2.numReconsumo === 1);
 check('alta dedup: integridad ok tras escrituras', integrityCheck(A).ok && foreignKeyViolations(A) === 0);
 
+// --- valoración 0 NO se descarta (review #4: 0 es un valor válido, no "vacío") ---
+const r0 = addEntry(A, {
+  obra: { titulo: 'Obra Valorada Cero ZZZ', categoria: 'pelicula', anio_obra: 2026 },
+  entrada: { fecha: '2026-06-24', valoracion: 0 }
+});
+check('valoración 0 se guarda como 0 (no null)', getEntry(A, r0.entradaId).valoracion === 0);
+
+// --- search escapa comodines LIKE (review #8): "%" literal no devuelve todo ---
+const allCount = listEntries(A).length;
+const pctCount = listEntries(A, { search: '%' }).length;
+check('búsqueda "%" se escapa (no devuelve todo)', pctCount < allCount, `(${pctCount} de ${allCount})`);
+
 A.close();
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}\n`);
 process.exit(failures === 0 ? 0 : 1);

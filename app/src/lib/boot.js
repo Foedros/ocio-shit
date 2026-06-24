@@ -323,7 +323,13 @@ export async function addEntryAction(payload) {
     const res = await db.addEntry(payload); // atomic transaction in the worker
     dbStatus.update((s) => ({ ...(s || {}), counts: res.counts }));
     markDirty();
-    await backupNow(); // Sprint 1 durable write (atomic, .prev rotation, zero .tmp)
+    // The alta is committed to OPFS. Flush durable atomically; if the flush fails, the alta
+    // is NOT lost — dirty stays true (re-armed in backupNow) and the next flush retries.
+    try {
+      await backupNow();
+    } catch {
+      logEvent('warn', 'Entrada guardada; el respaldo durable falló y se reintentará.');
+    }
     coordinator.broadcastChanged(res.counts); // followers refresh
     await refreshArchive();
     logEvent('ok', `Registrada "${payload.obra?.titulo}" · ${res.obraCreated ? 'obra nueva' : 'obra existente'} · reconsumo ${res.numReconsumo}.`);
@@ -434,16 +440,21 @@ export async function backupNow() {
     return;
   }
   busy.set('Escribiendo copia durable…');
+  // Capture intent BEFORE the awaits: if a markDirty() lands while we are writing, dirty goes
+  // true again and the next flush re-persists. On failure we re-arm dirty so the write is
+  // retried (never silently dropped) and we rethrow so the caller knows.
+  dirty = false;
   try {
     const json = await db.exportJson();
     const { at, method } = await durableStore.writeExportAtomic(json);
-    dirty = false;
     durability.update((d) => ({ ...d, lastBackupAt: at }));
     const mb = (json.length / 1e6).toFixed(2);
     const how = method === 'rename' ? 'temp+rename atómico' : 'escritura atómica directa (copia)';
     logEvent('ok', `Backup durable escrito (${mb} MB · ${how}) en ${durableStore.describe()}.`);
   } catch (err) {
+    dirty = true;
     logEvent('error', `Fallo al escribir backup durable: ${err.message}`);
+    throw err;
   } finally {
     busy.set(null);
   }
@@ -505,7 +516,7 @@ export function __installTestHooks() {
 
   // Harness that runs the REAL FsaDurableStore against a real OPFS directory handle.
   window.__ocioFsa = {
-    async run({ writes = 4, forceCopy = false } = {}) {
+    async run({ writes = 4, forceCopy = false, concurrent = false } = {}) {
       const root = await navigator.storage.getDirectory();
       try {
         await root.removeEntry('fsa-test', { recursive: true });
@@ -520,11 +531,6 @@ export function __installTestHooks() {
         for await (const [n] of dir.entries()) a.push(n);
         return a.sort();
       };
-      const steps = [];
-      for (let i = 1; i <= writes; i++) {
-        const r = await store.writeExportAtomic(JSON.stringify({ v: i }));
-        steps.push({ i, method: r.method, files: await list() });
-      }
       const readFile = async (n) => {
         try {
           return await (await (await dir.getFileHandle(n)).getFile()).text();
@@ -532,8 +538,27 @@ export function __installTestHooks() {
           return null;
         }
       };
+      const steps = [];
+      let settled = null;
+      if (concurrent) {
+        // Fire all writes AT ONCE — the store must serialize them (single-flight) so the
+        // folder never ends with an orphan .tmp or a corrupted rotation.
+        const results = await Promise.allSettled(
+          Array.from({ length: writes }, (_, i) => store.writeExportAtomic(JSON.stringify({ v: i + 1 })))
+        );
+        settled = {
+          fulfilled: results.filter((r) => r.status === 'fulfilled').length,
+          rejected: results.filter((r) => r.status === 'rejected').length
+        };
+      } else {
+        for (let i = 1; i <= writes; i++) {
+          const r = await store.writeExportAtomic(JSON.stringify({ v: i }));
+          steps.push({ i, method: r.method, files: await list() });
+        }
+      }
       return {
         steps,
+        settled,
         finalFiles: await list(),
         target: await readFile('ocioshit.export.json'),
         prev: await readFile('ocioshit.export.prev.json'),

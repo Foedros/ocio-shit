@@ -24,6 +24,16 @@ export const archiveEntries = writable([]); // current filtered list of entradas
 export const archiveFilters = writable({ categoria: '', origen: '', fecha_tipo: '', search: '' });
 export const filterOpts = writable({ categorias: [], origenes: [], fecha_tipos: [] });
 export const detail = writable(null); // { kind:'obra'|'entrada', data } selected for the detail panel
+export const toast = writable(null); // { msg, kind:'ok'|'error' } transient confirmation
+
+let toastTimer;
+export function showToast(msg, kind = 'ok') {
+  toast.set({ msg, kind });
+  if (typeof clearTimeout !== 'undefined') {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.set(null), 2600);
+  }
+}
 
 export const events = writable([]); // [{ t, level, msg }]
 

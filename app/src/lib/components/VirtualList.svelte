@@ -15,6 +15,14 @@
     return () => ro.disconnect();
   });
 
+  // When the list changes (e.g. a filter narrows it), reset scroll to the top — otherwise a
+  // leftover scrollTop can point past the end of a shorter result set and render blank.
+  $effect(() => {
+    void items.length;
+    scrollTop = 0;
+    if (viewport) viewport.scrollTop = 0;
+  });
+
   let total = $derived(items.length * rowHeight);
   let start = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - overscan));
   let visibleCount = $derived(Math.ceil(height / rowHeight) + overscan * 2);

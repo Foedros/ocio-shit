@@ -78,11 +78,13 @@ export function createTabCoordinator({ onBecomeLeader, onBecomeFollower, runQuer
     }
   };
 
-  /** Run a read. Leader: directly against the DB. Follower: proxied to the leader. */
+  /** Run a read. Leader: directly against the DB (after it is ready). Follower: proxied. */
   function query(method, args) {
-    if (leader) return Promise.resolve(runQuery(method, args));
+    // Gate the leader's OWN reads on dbReady too: during a follower->leader promotion the
+    // Web Lock (and thus `leader`) flips true before the worker has finished initializing.
+    if (leader) return dbReady.then(() => runQuery(method, args));
     return new Promise((resolve, reject) => {
-      const reqId = `${tabId}-${++seq}`;
+      const reqId = `${tabId}-${++seq}-${(typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36)).slice(0, 6)}`;
       const timer = setTimeout(() => {
         if (pending.has(reqId)) {
           pending.delete(reqId);

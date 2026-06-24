@@ -119,8 +119,10 @@ export function listEntries(adapter, { categoria, origen, fecha_tipo, search, li
   }
   if (search && search.trim()) {
     // lower() on BOTH sides (SQLite's ASCII-only lower) so JS/SQLite casing can't diverge.
-    where.push('lower(o.titulo) LIKE lower(?)');
-    params.push('%' + search.trim() + '%');
+    // Escape LIKE wildcards (% _ \) so a literal "%"/"_" in the query isn't a wildcard.
+    const esc = search.trim().replace(/[\\%_]/g, (ch) => '\\' + ch);
+    where.push("lower(o.titulo) LIKE lower(?) ESCAPE '\\'");
+    params.push('%' + esc + '%');
   }
   const sql =
     `${SELECT_ENTRY}\n` +
@@ -138,8 +140,10 @@ export function listObras(adapter, { categoria, search, limit = 6000 } = {}) {
     params.push(categoria);
   }
   if (search && search.trim()) {
-    where.push('lower(o.titulo) LIKE lower(?)');
-    params.push('%' + search.trim() + '%');
+    // Escape LIKE wildcards (% _ \) so a literal "%"/"_" in the query isn't a wildcard.
+    const esc = search.trim().replace(/[\\%_]/g, (ch) => '\\' + ch);
+    where.push("lower(o.titulo) LIKE lower(?) ESCAPE '\\'");
+    params.push('%' + esc + '%');
   }
   const sql =
     `SELECT o.id AS obra_id, o.titulo, o.categoria, o.anio_obra,

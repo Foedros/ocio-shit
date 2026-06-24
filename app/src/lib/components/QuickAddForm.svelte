@@ -1,21 +1,30 @@
 <script>
-  // Alta rápida: registrar una Obra+Entrada en segundos. Título + categoría + Enter.
+  // pantallas.md 02 · Registro rápido: alta en <10 s, 3 toques (categoría → nombre → nota).
   import { addEntryAction } from '$lib/boot.js';
-  import { CATEGORIAS, CATEGORIA_LABELS } from '$lib/db/queries.js';
-  import { busy, role } from '$lib/stores.js';
+  import { CATEGORIAS } from '$lib/db/queries.js';
+  import { busy, role, showToast } from '$lib/stores.js';
   import { todayISO } from '$lib/format.js';
+  import Button from './Button.svelte';
+  import CategoryChip from './CategoryChip.svelte';
+  import RatingSlider from './RatingSlider.svelte';
+
+  let { onsaved } = $props();
 
   let titulo = $state('');
   let categoria = $state('pelicula');
+  let valoracion = $state('');
   let fecha = $state(todayISO());
   let nota = $state('');
-  let valoracion = $state('');
   let anio = $state('');
   let more = $state(false);
   let tituloInput = $state(null);
-  let lastMsg = $state('');
 
   let canWrite = $derived($role === 'leader');
+
+  $effect(() => {
+    // Autofocus the name field when the sheet opens (the keyboard surfaces alone on mobile).
+    tituloInput?.focus();
+  });
 
   async function submit(e) {
     e?.preventDefault();
@@ -23,154 +32,154 @@
     try {
       const res = await addEntryAction({
         obra: { titulo: titulo.trim(), categoria, anio_obra: anio || null },
-        entrada: { fecha: fecha || null, nota: nota || null, valoracion: valoracion || null }
+        entrada: { fecha: fecha || null, nota: nota || null, valoracion: valoracion === '' ? null : valoracion }
       });
-      lastMsg = `✓ "${titulo.trim()}" registrada (${res.obraCreated ? 'obra nueva' : 'obra existente, reconsumo ' + res.numReconsumo}).`;
-      // Keep categoria + fecha for speed; clear the rest and refocus the title.
-      titulo = '';
-      nota = '';
-      valoracion = '';
-      anio = '';
-      tituloInput?.focus();
+      showToast(`Entrada guardada${res.obraCreated ? '' : ' · reconsumo ' + res.numReconsumo}`);
+      onsaved?.();
     } catch {
-      lastMsg = '';
+      showToast('No se pudo guardar. Reintenta.', 'error');
     }
   }
 </script>
 
-<form class="quickadd" onsubmit={submit}>
-  <div class="primary">
-    <select bind:value={categoria} disabled={!canWrite} aria-label="Categoría">
-      {#each CATEGORIAS as c}
-        <option value={c}>{CATEGORIA_LABELS[c]}</option>
-      {/each}
-    </select>
-    <input
-      bind:this={tituloInput}
-      bind:value={titulo}
-      placeholder="Título…"
-      disabled={!canWrite}
-      aria-label="Título"
-      autocomplete="off"
-    />
-    <button class="add" type="submit" disabled={!canWrite || !titulo.trim() || $busy}>Registrar</button>
-  </div>
-
-  <div class="secondary">
-    <label>Fecha <input type="date" bind:value={fecha} disabled={!canWrite} /></label>
-    <button type="button" class="link" onclick={() => (more = !more)}>{more ? 'menos' : 'más campos'}</button>
-  </div>
-
-  {#if more}
-    <div class="extra">
-      <label>Año <input type="number" bind:value={anio} min="1850" max="2100" disabled={!canWrite} placeholder="—" /></label>
-      <label>Valoración <input type="number" bind:value={valoracion} min="0" max="10" step="0.5" disabled={!canWrite} placeholder="0–10" /></label>
-      <label class="note">Nota <input bind:value={nota} disabled={!canWrite} placeholder="micro-reseña…" /></label>
-    </div>
+<form class="reg" onsubmit={submit}>
+  {#if !canWrite}
+    <p class="ro">Esta pestaña es de solo lectura. Registra desde la pestaña principal.</p>
   {/if}
 
-  {#if lastMsg}<p class="ok">{lastMsg}</p>{/if}
-  {#if !canWrite}<p class="ro">Solo lectura: el registro está activo en la pestaña principal.</p>{/if}
+  <section>
+    <div class="eyebrow">1 · Categoría</div>
+    <div class="chips">
+      {#each CATEGORIAS as c}
+        <CategoryChip categoria={c} selected={categoria === c} disabled={!canWrite} onclick={() => (categoria = c)} />
+      {/each}
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">2 · Nombre</div>
+    <input
+      class="name"
+      bind:this={tituloInput}
+      bind:value={titulo}
+      placeholder="¿Qué consumiste?"
+      disabled={!canWrite}
+      autocomplete="off"
+      aria-label="Nombre de la obra"
+    />
+  </section>
+
+  <section>
+    <RatingSlider bind:value={valoracion} />
+  </section>
+
+  {#if more}
+    <section class="extra">
+      <label>Fecha <input type="date" bind:value={fecha} disabled={!canWrite} /></label>
+      <label>Año <input type="number" bind:value={anio} min="1850" max="2100" placeholder="—" disabled={!canWrite} /></label>
+      <label class="wide">Nota personal <input bind:value={nota} placeholder="micro-reseña…" disabled={!canWrite} /></label>
+    </section>
+  {/if}
+
+  <div class="actions">
+    <Button variant="secondary" type="button" onclick={() => (more = !more)}>{more ? 'Menos' : 'Más'}</Button>
+    <Button variant="primary" type="submit" disabled={!canWrite || !titulo.trim() || !!$busy}>Guardar entrada</Button>
+  </div>
+  <p class="foot"><span>Hoy · {fecha}</span><span class="kbd">⏎ guardar</span></p>
 </form>
 
 <style>
-  .quickadd {
+  .reg {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+  section {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
   }
-  .primary {
-    display: flex;
-    gap: 0.5rem;
+  .eyebrow {
+    font-family: var(--font-data);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--label);
   }
-  .primary select {
-    flex: 0 0 auto;
-  }
-  .primary input {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  select,
-  input {
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 10px;
-    padding: 0.55rem 0.6rem;
-    font: inherit;
-  }
-  input:focus,
-  select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-  .add {
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    color: var(--on-accent);
-    border-radius: var(--radius-pill);
-    padding: 0.55rem 1.1rem;
-    cursor: pointer;
-    white-space: nowrap;
-    font-weight: 700;
-    transition: transform 0.12s;
-  }
-  .add:hover:not(:disabled) {
-    transform: scale(1.03);
-  }
-  .add:active:not(:disabled) {
-    transform: scale(0.98);
-  }
-  .add:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-  .secondary {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    color: var(--ink-3);
-    font-size: 0.85rem;
-  }
-  .secondary label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .secondary input {
-    padding: 0.3rem 0.4rem;
-  }
-  .extra {
+  .chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.6rem;
+    gap: 0.4rem;
+  }
+  .name {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 400;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--line-strong);
+    color: var(--ink);
+    padding: 0.3rem 0;
+  }
+  .name::placeholder {
+    color: var(--ink-3);
+  }
+  .name:focus {
+    outline: none;
+    border-bottom-color: var(--accent);
+  }
+  .extra {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.7rem;
   }
   .extra label {
     display: inline-flex;
     flex-direction: column;
-    gap: 0.2rem;
-    font-size: 0.75rem;
-    color: var(--ink-3);
+    gap: 0.25rem;
+    font-family: var(--font-data);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--label);
   }
-  .extra .note {
+  .extra .wide {
     flex: 1 1 12rem;
   }
-  .link {
-    background: none;
-    border: none;
-    color: var(--accent-ink);
-    cursor: pointer;
-    padding: 0;
-    font-size: 0.85rem;
+  .extra input {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 0.5rem 0.6rem;
+    font-family: var(--font-text);
+    font-size: 0.95rem;
+    text-transform: none;
+    letter-spacing: normal;
   }
-  .ok {
-    color: var(--ok);
-    font-size: 0.85rem;
+  .extra input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+  .foot {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-data);
+    font-size: 0.7rem;
+    color: var(--ink-3);
     margin: 0;
+  }
+  .kbd {
+    color: var(--ink-3);
   }
   .ro {
     color: var(--warn-ink);
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     margin: 0;
   }
 </style>

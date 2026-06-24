@@ -39,6 +39,7 @@ export class FsaDurableStore {
     this.kind = 'fsa';
     this._forceCopy = forceCopy;
     this._moveBroken = false; // once move() fails on this folder, stop trying it
+    this._chain = Promise.resolve(); // single-flight: serializes durable writes
   }
 
   describe() {
@@ -93,9 +94,20 @@ export class FsaDurableStore {
   /**
    * Atomic durable write with one-deep .prev rotation. Final on-disk state after any
    * number of calls: exactly TARGET + PREV, never an orphan TMP.
+   *
+   * SINGLE-FLIGHT: writes are serialized through `_chain`. Two concurrent calls (e.g. an
+   * alta's flush racing a visibilitychange/pagehide flush) would otherwise interleave on the
+   * shared TMP/PREV/TARGET names and corrupt the rotation or orphan a .tmp. The chain runs
+   * the next write whether the previous resolved or rejected, so one failure never wedges it.
    * @returns {Promise<{at:number, method:'rename'|'copy'}>}
    */
-  async writeExportAtomic(text) {
+  writeExportAtomic(text) {
+    const run = () => this._writeOnce(text);
+    this._chain = this._chain.then(run, run);
+    return this._chain;
+  }
+
+  async _writeOnce(text) {
     if (!(await this.ensurePermission())) throw new Error('permiso denegado sobre la carpeta');
     let method = 'copy';
     try {

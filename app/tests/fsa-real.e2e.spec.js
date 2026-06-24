@@ -16,6 +16,32 @@ const TARGET = 'ocioshit.export.json';
 const PREV = 'ocioshit.export.prev.json';
 const TMP = 'ocioshit.export.json.tmp';
 
+// Regression for the adversarial-review finding: two durable writes firing at once (an
+// alta's flush racing a visibilitychange/pagehide flush) must NOT interleave. The store is
+// single-flight, so N concurrent writes all succeed and the folder ends clean.
+for (const forceCopy of [false, true]) {
+  test(`FsaDurableStore CONCURRENT writes serialize (single-flight) — ${forceCopy ? 'copy' : 'rename'}: no orphan .tmp, no rejects`, async ({
+    page
+  }) => {
+    await page.goto('/?test=1');
+    await page.waitForFunction(() => !!window.__ocioFsa, null, { timeout: 30_000 });
+    const res = await page.evaluate((o) => window.__ocioFsa.run(o), { writes: 6, forceCopy, concurrent: true });
+
+    expect(res.settled.rejected, 'no concurrent write should reject').toBe(0);
+    expect(res.settled.fulfilled).toBe(6);
+    expect(res.finalFiles, 'folder must be exactly target + prev after concurrent writes').toEqual([
+      TARGET,
+      PREV
+    ]);
+    expect(res.finalFiles).not.toContain(TMP);
+    // The target holds a coherent, fully-written generation (valid JSON, one of v1..v6).
+    const v = JSON.parse(res.target).v;
+    expect(v).toBeGreaterThanOrEqual(1);
+    expect(v).toBeLessThanOrEqual(6);
+    console.log(`\n  concurrent ${forceCopy ? 'copy' : 'rename'} OK — 6 fired at once, 6 ok, folder=[${res.finalFiles.join(', ')}], target=v${v}\n`);
+  });
+}
+
 for (const forceCopy of [false, true]) {
   const pathName = forceCopy ? 'copy fallback (move() unreliable — the local-FS bug path)' : 'rename fast path';
   test(`FsaDurableStore over real OPFS handles — ${pathName}: N writes leave only target+prev, zero .tmp`, async ({

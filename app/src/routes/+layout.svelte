@@ -15,7 +15,7 @@
     <div class="brand">
       <span class="mark">◆</span>
       <span class="name">Ocio&nbsp;Shit</span>
-      <span class="tag">Sprint&nbsp;1 · durabilidad</span>
+      <span class="tag">Archivo&nbsp;cultural</span>
     </div>
     <BackupIndicator />
   </header>
