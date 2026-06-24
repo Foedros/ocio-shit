@@ -1,7 +1,7 @@
 <script>
   import Sheet from './Sheet.svelte';
   import { detail, role, busy } from '$lib/stores.js';
-  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction } from '$lib/boot.js';
+  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';

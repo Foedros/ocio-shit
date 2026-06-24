@@ -14,12 +14,22 @@
 		"prepare": "node scripts/prepare-assets.mjs && svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
 		"test:roundtrip": "node tests/roundtrip.node.test.mjs",
-		"test:fsa": "node tests/fsa-store.node.test.mjs",
 		"test:queries": "node tests/queries.node.test.mjs",
 		"test:compiler": "node tests/compiler.node.test.mjs",
 		"test:colecciones": "node tests/colecciones.node.test.mjs",
 		"test:audit": "node tests/audit-derivados.mjs",
-		"test:unit": "npm run test:roundtrip && npm run test:fsa && npm run test:queries && npm run test:compiler && npm run test:colecciones",
+		"test:pg-dialect": "node tests/pg-dialect.node.test.mjs",
+		"test:load-prep": "node tests/load-prep.node.test.mjs",
+		"test:unit": "npm run test:roundtrip && npm run test:queries && npm run test:compiler && npm run test:colecciones && npm run test:pg-dialect",
+		"supabase:setup": "node scripts/supabase-setup.mjs",
+		"supabase:functions": "node scripts/supabase-functions.mjs",
+		"supabase:load": "node scripts/supabase-load.mjs",
+		"supabase:seed-collections": "node scripts/supabase-seed-collections.mjs",
+		"supabase:security": "node scripts/supabase-security-check.mjs",
+		"supabase:compiler": "node scripts/supabase-compiler-check.mjs",
+		"supabase:export": "node scripts/supabase-export.mjs",
+		"supabase:verify-data": "node scripts/supabase-verify-data.mjs",
+		"supabase:bundle-check": "node scripts/supabase-bundle-check.mjs",
 		"test:e2e": "playwright test",
 		"pretest:e2e": "npm run prepare-assets",
 		"test": "npm run test:unit && npm run test:e2e"
@@ -32,9 +42,10 @@
 		"svelte": "^5.56.1",
 		"svelte-check": "^4.6.0",
 		"typescript": "^6.0.3",
-		"vite": "^8.0.16"
+		"vite": "^8.0.16",
+		"pg": "^8.13.0"
 	},
 	"dependencies": {
-		"@sqlite.org/sqlite-wasm": "^3.53.0-build1"
+		"@supabase/supabase-js": "^2.45.0"
 	}
 }

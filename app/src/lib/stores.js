@@ -18,6 +18,9 @@ export const durability = writable({
   needsPermission: false
 });
 
+// Stage 3 (Supabase) — auth session of the single user
+export const auth = writable({ session: null, user: null, ready: false });
+
 // Sprint 2 — multi-tab role + archive view
 export const role = writable('init'); // 'leader' | 'follower' | 'init'
 export const archiveEntries = writable([]); // current filtered list of entradas

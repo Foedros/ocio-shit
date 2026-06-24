@@ -1,7 +1,7 @@
 <script>
   import VirtualList from './VirtualList.svelte';
   import { archiveEntries, archiveFilters, filterOpts } from '$lib/stores.js';
-  import { setFilters, openEntryDetail } from '$lib/boot.js';
+  import { setFilters, openEntryDetail } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion } from '$lib/format.js';

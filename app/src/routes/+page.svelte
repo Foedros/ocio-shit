@@ -1,21 +1,22 @@
 <script>
   import { onMount } from 'svelte';
-  import { boot, __installTestHooks } from '$lib/boot.js';
-  import { role, dbStatus } from '$lib/stores.js';
+  import { boot, signOutAction, exportAction, __installTestHooks } from '$lib/boot-supabase.js';
+  import { auth, dbStatus } from '$lib/stores.js';
   import ArchiveList from '$lib/components/ArchiveList.svelte';
   import DetailPanel from '$lib/components/DetailPanel.svelte';
-  import DurabilityPanel from '$lib/components/DurabilityPanel.svelte';
   import ColeccionesPanel from '$lib/components/ColeccionesPanel.svelte';
   import QuickAddForm from '$lib/components/QuickAddForm.svelte';
+  import Login from '$lib/components/Login.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
   import Toast from '$lib/components/Toast.svelte';
 
-  let view = $state('diario'); // 'diario' | 'durabilidad'
+  let view = $state('diario'); // 'diario' | 'colecciones' | 'cuenta'
   let showAdd = $state(false);
 
-  let canWrite = $derived($role === 'leader');
+  let canWrite = $derived(!!$auth.session); // every authenticated tab can write (Postgres arbitra)
   let isEmpty = $derived(($dbStatus?.counts?.entrada ?? 0) === 0);
+  let counts = $derived($dbStatus?.counts);
 
   onMount(() => {
     __installTestHooks();
@@ -23,17 +24,15 @@
   });
 </script>
 
-{#if $role === 'follower'}
-  <div class="ro-banner">
-    Pestaña de <strong>solo lectura</strong> — el archivo está abierto en otra pestaña. Aquí
-    exploras; no se registra. Si cierras la otra, esta toma el control automáticamente.
-  </div>
-{/if}
-
+{#if !$auth.ready}
+  <p class="loading">Conectando…</p>
+{:else if !$auth.session}
+  <Login />
+{:else}
 <nav class="tabs">
   <button class:active={view === 'diario'} onclick={() => (view = 'diario')}>Diario</button>
   <button class:active={view === 'colecciones'} onclick={() => (view = 'colecciones')}>Colecciones</button>
-  <button class:active={view === 'durabilidad'} onclick={() => (view = 'durabilidad')}>Durabilidad</button>
+  <button class:active={view === 'cuenta'} onclick={() => (view = 'cuenta')}>Cuenta</button>
 </nav>
 
 {#if view === 'diario'}
@@ -50,7 +49,19 @@
 {:else if view === 'colecciones'}
   <ColeccionesPanel />
 {:else}
-  <DurabilityPanel />
+  <section class="cuenta">
+    <h2>Cuenta</h2>
+    <p class="who">Sesión: <strong>{$auth.user?.email}</strong></p>
+    {#if counts}
+      <p class="counts">{counts.obra} obras · {counts.entrada} entradas · {counts.persona} personas en Supabase.</p>
+    {/if}
+    <p class="note">Tus datos viven en Supabase (PostgreSQL en la nube), protegidos por RLS. Multi-dispositivo: PC y móvil.</p>
+    <div class="cuenta-actions">
+      <Button variant="secondary" onclick={() => exportAction()}>Exportar archivo (.json)</Button>
+      <Button variant="ghost" onclick={() => signOutAction()}>Cerrar sesión</Button>
+    </div>
+    <p class="note small">Exportar saca tu archivo completo (todas las entradas, sin truncar) en el formato portable <code>export.json</code> — puedes llevártelo a otro Postgres o a SQLite cuando quieras. Propiedad total del dato.</p>
+  </section>
 {/if}
 
 {#if view === 'diario' && canWrite && !(isEmpty && canWrite)}
@@ -66,18 +77,50 @@
 </Sheet>
 
 <DetailPanel />
+{/if}
+
 <Toast />
 
 <style>
-  .ro-banner {
-    background: color-mix(in srgb, var(--gold) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--gold) 38%, var(--line));
-    color: var(--gold);
-    border-radius: var(--radius);
-    padding: 0.7rem 0.9rem;
-    margin-bottom: 1rem;
+  .loading {
+    text-align: center;
+    color: var(--ink-2);
+    padding: 4rem 1rem;
+  }
+  .cuenta {
+    padding: 1rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+  .cuenta h2 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    margin: 0 0 0.4rem;
+  }
+  .cuenta .who {
+    margin: 0;
+  }
+  .cuenta .counts {
+    color: var(--ink-2);
+    font-family: var(--font-mono, monospace);
     font-size: 0.9rem;
-    line-height: 1.45;
+    margin: 0;
+  }
+  .cuenta .note {
+    color: var(--ink-3);
+    max-width: 34em;
+    line-height: 1.5;
+    margin: 0.2rem 0 0.8rem;
+  }
+  .cuenta .note.small {
+    font-size: 0.82rem;
+  }
+  .cuenta-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
   }
   .tabs {
     display: flex;

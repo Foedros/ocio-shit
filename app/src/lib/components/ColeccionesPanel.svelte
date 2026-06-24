@@ -7,7 +7,7 @@
     deleteColeccionAction,
     applyR1Action,
     createColeccionAction
-  } from '$lib/boot.js';
+  } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtValoracion } from '$lib/format.js';

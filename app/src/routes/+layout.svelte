@@ -1,13 +1,12 @@
 <script>
   import favicon from '$lib/assets/favicon.svg';
-  import BackupIndicator from '$lib/components/BackupIndicator.svelte';
 
   let { children } = $props();
 </script>
 
 <svelte:head>
   <link rel="icon" href={favicon} />
-  <title>Ocio Shit — durabilidad</title>
+  <title>Ocio Shit — archivo cultural</title>
 </svelte:head>
 
 <div class="app">
@@ -17,7 +16,6 @@
       <span class="name">Ocio&nbsp;Shit</span>
       <span class="tag">Archivo&nbsp;cultural</span>
     </div>
-    <BackupIndicator />
   </header>
 
   <main>

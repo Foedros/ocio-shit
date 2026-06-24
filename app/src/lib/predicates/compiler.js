@@ -184,10 +184,12 @@ function compileCountWhere(f, params, opts) {
     countSql = `(SELECT COUNT(*) FROM obra cwo WHERE ${where})`;
   } else if (f.sobre === 'mes') {
     // donde compares the per-month aggregate agg.num_entradas_mes (the month's entry count).
+    // HAVING references the aggregate COUNT(*) directly (SQL-standard) rather than the SELECT
+    // alias `n`: SQLite tolerates the alias, PostgreSQL does not — COUNT(*) is valid in BOTH.
     const having = (f.donde || [])
       .map((d) => {
         if (d.campo !== 'agg.num_entradas_mes') throw new Error(`count_where sobre mes solo admite agg.num_entradas_mes`);
-        return cmpSql('n', d.op, d.valor, params, opts);
+        return cmpSql('COUNT(*)', d.op, d.valor, params, opts);
       })
       .join(' AND ') || '1';
     countSql = `(SELECT COUNT(*) FROM (SELECT strftime('%Y-%m', fecha) m, COUNT(*) n FROM entrada WHERE fecha IS NOT NULL GROUP BY m HAVING ${having}))`;

@@ -1,6 +1,6 @@
 <script>
   // pantallas.md 02 · Registro rápido: alta en <10 s, 3 toques (categoría → nombre → nota).
-  import { addEntryAction } from '$lib/boot.js';
+  import { addEntryAction } from '$lib/boot-supabase.js';
   import { CATEGORIAS } from '$lib/db/queries.js';
   import { busy, role, showToast } from '$lib/stores.js';
   import { todayISO } from '$lib/format.js';

@@ -1,0 +1,225 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- Ocio Shit — RPCs de escritura atómica (Stage 3) · Supabase/PostgreSQL
+-- El cliente del navegador (PostgREST) no hace transacciones multi-paso; estas funciones
+-- encapsulan el ALTA y el BORRADO con la MISMA lógica que app/src/lib/db/queries.js
+-- (dedup por clave_dedup, num_reconsumo autonumerado, A-07 de duración, cascada de obra
+-- huérfana) de forma ATÓMICA.
+--
+-- SEGURIDAD: SECURITY INVOKER → corren como el usuario autenticado, así que la RLS aplica
+-- (owner_id = auth.uid()) y NO son funciones con privilegios elevados (el Advisor NO las marca,
+-- a diferencia de SECURITY DEFINER). EXECUTE solo para `authenticated`; revocado de anon/public.
+-- search_path fijo (no mutable). Las lecturas van por PostgREST/builder (no aquí).
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ── ALTA: Obra (reusada por clave_dedup o nueva) + Entrada, en una transacción ──────────────
+create or replace function ocio_add_entry(p jsonb)
+  returns jsonb
+  language plpgsql
+  security invoker
+  set search_path = public
+as $$
+declare
+  v_titulo     text    := trim(coalesce(p->'obra'->>'titulo',''));
+  v_categoria  text    := p->'obra'->>'categoria';
+  v_anio       integer;
+  v_estado     text    := coalesce(nullif(p->'entrada'->>'estado',''),'terminado');
+  v_valoracion double precision;
+  v_fecha      date;
+  v_nota       text    := nullif(p->'entrada'->>'nota','');
+  v_dur_in     integer;
+  v_obra_id    text;
+  v_created    boolean := false;
+  v_canonica   integer;
+  v_dur_entry  integer;
+  v_reconsumo  integer;
+  v_entrada_id text    := gen_random_uuid()::text;
+begin
+  if v_titulo = '' then raise exception 'El título es obligatorio.'; end if;
+  if v_categoria not in ('pelicula','serie','libro','videojuego','comic','ocio_libre') then
+    raise exception 'Categoría inválida: %', v_categoria;
+  end if;
+  if nullif(p->'obra'->>'anio_obra','') is not null then
+    v_anio := trunc((p->'obra'->>'anio_obra')::numeric)::integer;
+  end if;
+  if v_estado not in ('pendiente','en_curso','terminado','abandonado') then v_estado := 'terminado'; end if;
+  if nullif(p->'entrada'->>'valoracion','') is not null then
+    v_valoracion := (p->'entrada'->>'valoracion')::double precision;
+    if v_valoracion < 0 or v_valoracion > 10 then raise exception 'La valoración debe estar entre 0 y 10.'; end if;
+  end if;
+  if nullif(p->'entrada'->>'fecha','') is not null then v_fecha := (p->'entrada'->>'fecha')::date; end if;
+  if nullif(p->'entrada'->>'duracion_min','') is not null then
+    v_dur_in := greatest(0, trunc((p->'entrada'->>'duracion_min')::numeric)::integer);
+  end if;
+
+  -- Dedup contra la columna generada clave_dedup (= lower(titulo)|categoria|coalesce(anio::text,'')).
+  select id into v_obra_id from obra
+   where clave_dedup = lower(v_titulo) || '|' || v_categoria || '|' || coalesce(v_anio::text,'');
+
+  if v_obra_id is null then
+    v_obra_id := gen_random_uuid()::text;
+    -- A-07: duración fija (pelicula/libro/comic) → canónica = por-entrada; variable → canónica NULL.
+    if v_categoria in ('pelicula','libro','comic') then v_canonica := v_dur_in; else v_canonica := null; end if;
+    insert into obra (id, titulo, categoria, anio_obra, decada, duracion_canonica_min)
+      values (v_obra_id, v_titulo, v_categoria, v_anio,
+              case when v_anio is not null then (v_anio/10)*10 else null end, v_canonica);
+    v_created := true;
+  end if;
+
+  -- A-07: re-consumo de obra fija sin tiempo introducido hereda la canónica.
+  v_dur_entry := v_dur_in;
+  if v_dur_entry is null and v_categoria in ('pelicula','libro','comic') then
+    select duracion_canonica_min into v_dur_entry from obra where id = v_obra_id;
+  end if;
+
+  select count(*) into v_reconsumo from entrada where obra_id = v_obra_id;  -- 0 = primera vez
+  insert into entrada (id, obra_id, fecha, estado, nota, valoracion, duracion_min, clase_tiempo, num_reconsumo, metadata)
+    values (v_entrada_id, v_obra_id, v_fecha, v_estado, v_nota, v_valoracion, v_dur_entry, 'electivo', v_reconsumo,
+            jsonb_build_object('origen','sheets','fecha_tipo','fecha_visionado'));
+
+  return jsonb_build_object('obra_id', v_obra_id, 'entrada_id', v_entrada_id,
+                            'obra_created', v_created, 'num_reconsumo', v_reconsumo);
+end;
+$$;
+
+-- ── BORRADO: Entrada; si su Obra queda sin entradas, se borra también (cascada FK) ──────────
+create or replace function ocio_delete_entry(p_entrada_id text)
+  returns jsonb
+  language plpgsql
+  security invoker
+  set search_path = public
+as $$
+declare v_obra_id text; v_remaining integer; v_obra_deleted boolean := false;
+begin
+  select obra_id into v_obra_id from entrada where id = p_entrada_id;
+  if v_obra_id is null then return jsonb_build_object('deleted', false, 'obra_deleted', false); end if;
+  delete from entrada where id = p_entrada_id;
+  select count(*) into v_remaining from entrada where obra_id = v_obra_id;
+  if v_remaining = 0 then
+    delete from obra where id = v_obra_id;   -- ON DELETE CASCADE limpia obra_creador/etc.
+    v_obra_deleted := true;
+  end if;
+  return jsonb_build_object('deleted', true, 'obra_deleted', v_obra_deleted, 'obra_id', v_obra_id);
+end;
+$$;
+
+-- ── Lecturas agregadas que PostgREST no hace cómodo (DISTINCT, counts) ──────────────────────
+-- SECURITY INVOKER (RLS aplica) + STABLE. Solo lectura.
+create or replace function ocio_counts()
+  returns jsonb language sql security invoker stable set search_path = public
+as $$
+  select jsonb_build_object(
+    'obra',         (select count(*) from obra),
+    'entrada',      (select count(*) from entrada),
+    'persona',      (select count(*) from persona),
+    'obra_creador', (select count(*) from obra_creador));
+$$;
+
+create or replace function ocio_filter_options()
+  returns jsonb language sql security invoker stable set search_path = public
+as $$
+  select jsonb_build_object(
+    'categorias',  (select coalesce(jsonb_agg(distinct categoria order by categoria), '[]'::jsonb)
+                      from obra where categoria is not null),
+    'origenes',    (select coalesce(jsonb_agg(distinct (metadata->>'origen') order by (metadata->>'origen')), '[]'::jsonb)
+                      from entrada where metadata->>'origen' is not null),
+    'fecha_tipos', (select coalesce(jsonb_agg(distinct (metadata->>'fecha_tipo') order by (metadata->>'fecha_tipo')), '[]'::jsonb)
+                      from entrada where metadata->>'fecha_tipo' is not null));
+$$;
+
+-- ── Colecciones (escritura) — crear / materializar (compilador en runtime) / R1 ─────────────
+-- Materializar ejecuta el SQL que produce el COMPILADOR conservado (compileCollectionRule). Como
+-- PostgREST no corre SQL crudo, llega aquí. Defensas: SECURITY INVOKER (RLS aplica, no DEFINER →
+-- el Advisor no lo marca); se valida que el SQL sea EXACTAMENTE el SELECT del compilador, una sola
+-- sentencia, sin DML; y los parámetros se sustituyen como literales SEGUROS (números tal cual,
+-- textos con quote_literal) — nunca hay datos de usuario sin escapar en el SQL.
+create or replace function ocio_create_collection(p jsonb)
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare v_id text := gen_random_uuid()::text; v_nombre text := trim(coalesce(p->>'nombre','')); v_tipo text := p->>'tipo';
+begin
+  if v_nombre = '' then raise exception 'La colección necesita un nombre.'; end if;
+  if v_tipo not in ('manual','inteligente','ia') then raise exception 'tipo inválido: %', v_tipo; end if;
+  insert into coleccion (id, nombre, descripcion, tipo, regla_json)
+    values (v_id, v_nombre, nullif(p->>'descripcion',''), v_tipo,
+            case when p ? 'regla_json' and jsonb_typeof(p->'regla_json') <> 'null'
+                 then (p->'regla_json')::text else null end);
+  return jsonb_build_object('id', v_id);
+end;
+$$;
+
+create or replace function ocio_materialize_collection(p_coleccion_id text, p_sql text, p_params jsonb default '[]'::jsonb)
+  returns integer language plpgsql security invoker set search_path = public
+as $$
+declare v_sql text := p_sql; v_i int; v_el jsonb; v_lit text; v_ids text[];
+begin
+  -- whitelist ESTRUCTURAL (sobre p_sql, que solo trae $n + SQL del compilador, sin literales)
+  if v_sql !~* '^\s*SELECT DISTINCT o\.id FROM obra o' then raise exception 'consulta no permitida'; end if;
+  if position(';' in v_sql) > 0 then raise exception 'multi-statement no permitido'; end if;
+  if v_sql ~* '\m(insert|update|delete|drop|alter|truncate|grant|revoke|create|copy|merge|call|do)\M' then
+    raise exception 'palabra no permitida en la consulta';
+  end if;
+  -- sustituir $1..$n por literales seguros (reverso: $10 antes que $1)
+  if jsonb_typeof(p_params) = 'array' then
+    for v_i in reverse jsonb_array_length(p_params) - 1 .. 0 loop
+      v_el := p_params -> v_i;
+      if v_el is null or jsonb_typeof(v_el) = 'null' then v_lit := 'NULL';
+      elsif jsonb_typeof(v_el) in ('number','boolean') then v_lit := (v_el #>> '{}');
+      else v_lit := quote_literal(v_el #>> '{}'); end if;
+      v_sql := replace(v_sql, '$' || (v_i + 1)::text, v_lit);
+    end loop;
+  end if;
+  execute 'select coalesce(array_agg(t.id), ''{}''::text[]) from (' || v_sql || ') t' into v_ids;
+  delete from obra_coleccion where coleccion_id = p_coleccion_id;
+  if array_length(v_ids, 1) > 0 then
+    insert into obra_coleccion (obra_id, coleccion_id)
+      select unnest(v_ids), p_coleccion_id on conflict do nothing;
+  end if;
+  return coalesce(array_length(v_ids, 1), 0);
+end;
+$$;
+
+-- R1 (etiquetas.js): deriva decada-*/idioma-*/pais-* de columnas de Obra y vincula. Idempotente.
+create or replace function ocio_apply_r1()
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare v_tags int := 0; v_links int := 0; r record; v_id text; v_nombre text; v_before int; v_after int;
+begin
+  for r in select distinct decada from obra where decada is not null loop
+    v_nombre := 'decada-' || r.decada::text || 's';
+    select id into v_id from etiqueta where nombre = v_nombre;
+    if v_id is null then v_id := gen_random_uuid()::text;
+      insert into etiqueta (id, nombre, taxonomia, origen) values (v_id, v_nombre, 'meta', 'ia'); v_tags := v_tags + 1; end if;
+    select count(*) into v_before from obra_etiqueta where etiqueta_id = v_id;
+    insert into obra_etiqueta (obra_id, etiqueta_id) select id, v_id from obra where decada = r.decada on conflict do nothing;
+    select count(*) into v_after from obra_etiqueta where etiqueta_id = v_id;
+    v_links := v_links + (v_after - v_before);
+  end loop;
+  for r in select distinct idioma_original as v from obra where idioma_original is not null loop
+    v_nombre := 'idioma-' || lower(regexp_replace(r.v, '[^a-zA-Z0-9]+', '-', 'g'));
+    select id into v_id from etiqueta where nombre = v_nombre;
+    if v_id is null then v_id := gen_random_uuid()::text;
+      insert into etiqueta (id, nombre, taxonomia, origen) values (v_id, v_nombre, 'meta', 'ia'); v_tags := v_tags + 1; end if;
+    select count(*) into v_before from obra_etiqueta where etiqueta_id = v_id;
+    insert into obra_etiqueta (obra_id, etiqueta_id) select id, v_id from obra where idioma_original = r.v on conflict do nothing;
+    select count(*) into v_after from obra_etiqueta where etiqueta_id = v_id;
+    v_links := v_links + (v_after - v_before);
+  end loop;
+  return jsonb_build_object('tags', v_tags, 'links', v_links, 'rule', 'R1');
+end;
+$$;
+
+-- ── Permisos: solo el usuario autenticado; nunca anon/public ────────────────────────────────
+revoke all on function ocio_add_entry(jsonb)        from public, anon;
+revoke all on function ocio_delete_entry(text)      from public, anon;
+revoke all on function ocio_counts()                from public, anon;
+revoke all on function ocio_filter_options()        from public, anon;
+revoke all on function ocio_create_collection(jsonb) from public, anon;
+revoke all on function ocio_materialize_collection(text, text, jsonb) from public, anon;
+revoke all on function ocio_apply_r1()              from public, anon;
+grant  execute on function ocio_add_entry(jsonb)    to authenticated;
+grant  execute on function ocio_delete_entry(text)  to authenticated;
+grant  execute on function ocio_counts()            to authenticated;
+grant  execute on function ocio_filter_options()    to authenticated;
+grant  execute on function ocio_create_collection(jsonb) to authenticated;
+grant  execute on function ocio_materialize_collection(text, text, jsonb) to authenticated;
+grant  execute on function ocio_apply_r1()          to authenticated;
