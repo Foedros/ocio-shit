@@ -32,3 +32,4 @@ vite.config.ts.timestamp-*
 /static/sqlite/
 /durability-dashboard.png
 /live-deploy.png
+/archive.png

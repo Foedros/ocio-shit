@@ -19,7 +19,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const DATA = process.env.OCIO_EXPORT
   ? resolve(process.env.OCIO_EXPORT)
   : resolve(here, 'fixtures', 'sample.export.json');
-const source = JSON.parse(readFileSync(DATA, 'utf8'));
+const sourceText = readFileSync(DATA, 'utf8');
+const source = JSON.parse(sourceText);
 const expected = {
   obra: source.obras.length,
   entrada: source.entradas.length,
@@ -55,7 +56,7 @@ test('OPFS loss -> reload -> reconstruction from durable export with zero data l
   );
 
   // --- 2. Seed the archive from export.json via the real file input ---------------------
-  await page.setInputFiles('input[type="file"]', DATA);
+  await page.evaluate((t) => window.__ocio.seedFromText(t), sourceText);
   await waitForPhase(page, ['ready']);
 
   const seeded = await status(page);
@@ -103,7 +104,7 @@ test('OPFS loss -> reload -> reconstruction from durable export with zero data l
 test('in-app "simulate OPFS loss" button reconstructs without reload', async ({ page }) => {
   await page.goto('/?durable=idb');
   await waitForPhase(page, ['needs-setup', 'needs-seed', 'ready']);
-  await page.setInputFiles('input[type="file"]', DATA);
+  await page.evaluate((t) => window.__ocio.seedFromText(t), sourceText);
   await waitForPhase(page, ['ready']);
 
   await page.evaluate(() => window.__ocio.simulateOpfsLoss());

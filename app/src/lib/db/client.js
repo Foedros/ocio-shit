@@ -40,6 +40,16 @@ export function createDbClient() {
     rebuildFromExport: (json) => call('rebuildFromExport', { json }),
     simulateOpfsLoss: () => call('simulateOpfsLoss'),
     releaseForWipe: () => call('releaseForWipe'),
+    // archive (Sprint 2)
+    addEntry: (payload) => call('addEntry', payload),
+    listEntries: (filters) => call('listEntries', { filters }),
+    listObras: (filters) => call('listObras', { filters }),
+    getEntry: (entradaId) => call('getEntry', { entradaId }),
+    getObra: (obraId) => call('getObra', { obraId }),
+    filterOptions: () => call('filterOptions'),
+    // test-only
+    __beginUncommitted: () => call('__beginUncommitted'),
+    __probe: () => call('__probe'),
     terminate: () => worker.terminate()
   };
 }

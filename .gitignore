@@ -19,9 +19,12 @@ carpeta_durable/
 **/ocioshit.export.prev.json
 **/ocioshit.export.json.tmp
 
-# Design docs + handoff stay LOCAL (contain personal aggregate stats). The PUBLIC repo
-# carries only the app shell + schema. Decision: 2026-06-24.
+# Design docs + handoff stay LOCAL (contain personal aggregate stats / name / example data).
+# The PUBLIC repo carries only the app shell + schema. The app BAKES the tokens.json values
+# into its built CSS, so the deployed shell keeps the aesthetic without publishing the source.
+# Decision: 2026-06-24.
 docs/
+diseno/
 CLAUDE.md
 
 # Secrets

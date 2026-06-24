@@ -1,5 +1,5 @@
-// node:sqlite adapter implementing the 3-method contract from src/lib/db/io.js.
-// Used only by the CI round-trip test; production uses the OO1 adapter in the worker.
+// node:sqlite adapter implementing the same contract as adapter-oo1.js. Used by the CI
+// tests; production uses the OO1 adapter in the worker.
 import { DatabaseSync } from 'node:sqlite';
 
 export function createNodeAdapter() {
@@ -10,8 +10,14 @@ export function createNodeAdapter() {
     exec(sql) {
       db.exec(sql);
     },
-    all(sql) {
-      return db.prepare(sql).all();
+    all(sql, params = []) {
+      return db.prepare(sql).all(...params);
+    },
+    get(sql, params = []) {
+      return db.prepare(sql).get(...params) ?? null;
+    },
+    run(sql, params = []) {
+      db.prepare(sql).run(...params);
     },
     runMany(sql, rows) {
       const stmt = db.prepare(sql);

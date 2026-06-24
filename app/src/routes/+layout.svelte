@@ -26,22 +26,39 @@
 </div>
 
 <style>
+  /* Tokens from diseno/tokens.json (dark = home mode). Custom font files are deferred to
+     Sprint 4; the stacks fall back to system serif/sans/mono for now. */
   :global(:root) {
-    --bg: #0e0d10;
-    --surface: #17151b;
-    --surface-2: #1f1d25;
-    --line: #2c2933;
-    --ink: #f3eee9;
-    --ink-2: #c9c2bb;
-    --ink-3: #8a8290;
-    --accent: #c8a24a;
-    --accent-ink: #f0d493;
-    --ok: #4caf7d;
-    --warn: #d9a441;
-    --warn-ink: #f0c873;
-    --danger: #d9534f;
-    --danger-ink: #f08d8a;
-    --radius: 14px;
+    --bg: #0b0a08; /* ink */
+    --surface: #14110d;
+    --surface-2: #211c16; /* raised */
+    --line: #211c16; /* border */
+    --line-strong: #2e2820;
+    --hairline-plus: #433b30;
+    --ink: #f2ebdd; /* text.primary */
+    --ink-2: #a89f8f; /* text.muted */
+    --ink-3: #6e665a; /* text.faint */
+    --label: #8a6f4a; /* eyebrow */
+    --accent: #e8602c; /* amber — primary action */
+    --accent-ink: #f2a65a; /* gold — ratings/highlights */
+    --gold: #f2a65a;
+    --on-accent: #0b0a08;
+    --ok: #7e8f5b;
+    --warn: #f2a65a;
+    --warn-ink: #f2a65a;
+    --danger: #c75d52;
+    --danger-ink: #d98178;
+    --cat-pelicula: #c75d52;
+    --cat-serie: #c9a23f;
+    --cat-libro: #7e8f5b;
+    --cat-videojuego: #9580b0;
+    --cat-comic: #5b9298;
+    --cat-ocio_libre: #c2796b;
+    --radius: 16px;
+    --radius-pill: 999px;
+    --font-display: 'Newsreader', Georgia, 'Times New Roman', serif;
+    --font-text: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+    --font-data: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
     color-scheme: dark;
   }
 
@@ -53,15 +70,19 @@
     padding: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Times New Roman', serif;
+    font-family: var(--font-text);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
   :global(button) {
     font: inherit;
   }
+  :global(h1, h2, h3, h4) {
+    font-family: var(--font-display);
+    font-weight: 500;
+  }
   :global(code) {
-    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+    font-family: var(--font-data);
     font-size: 0.85em;
   }
 
@@ -93,13 +114,15 @@
     color: var(--accent);
   }
   .name {
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: 0.01em;
   }
   .tag {
-    color: var(--ink-3);
-    font-size: 0.78rem;
-    letter-spacing: 0.04em;
+    color: var(--label);
+    font-family: var(--font-data);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
   }
   main {

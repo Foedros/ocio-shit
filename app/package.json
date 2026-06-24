@@ -15,7 +15,8 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
 		"test:roundtrip": "node tests/roundtrip.node.test.mjs",
 		"test:fsa": "node tests/fsa-store.node.test.mjs",
-		"test:unit": "npm run test:roundtrip && npm run test:fsa",
+		"test:queries": "node tests/queries.node.test.mjs",
+		"test:unit": "npm run test:roundtrip && npm run test:fsa && npm run test:queries",
 		"test:e2e": "playwright test",
 		"pretest:e2e": "npm run prepare-assets",
 		"test": "npm run test:unit && npm run test:e2e"

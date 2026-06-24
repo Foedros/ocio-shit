@@ -1,8 +1,15 @@
-# Ocio Shit — Sprint 1: la columna de durabilidad
+# Ocio Shit — PWA local-first (Sprint 1 durabilidad · Sprint 2 archivo)
 
-Archivo cultural personal **de por vida**, local-first. Sprint 1 construye **solo** la
-columna de durabilidad: el motor SQLite, la carga del archivo migrado y la garantía de que
-**el dato no se pierde nunca**. Sin pantallas de contenido (eso es Sprint 2+).
+Archivo cultural personal **de por vida**, local-first.
+
+- **Sprint 1 — durabilidad:** motor SQLite-WASM (OO1 + OPFS-SAH-pool), carga del archivo
+  migrado y la garantía de que **el dato no se pierde nunca** (verdad durable = `export.json`
+  en disco real; OPFS desechable; reconstrucción al arrancar).
+- **Sprint 2 — el archivo se usa:** **registro rápido** (Obra+Entrada en segundos),
+  **listado** virtualizado con filtros por `categoria`/`origen`/`fecha_tipo` (la doble
+  semántica visible) y detalle, y **ciclo multi-pestaña** (pestaña líder vía Web Locks; las
+  demás en solo-lectura; matar al líder a mitad de escritura no corrompe ni pierde dato).
+  Cada alta dispara la escritura durable atómica de Sprint 1.
 
 > La app vive en [`app/`](app/). Los documentos de diseño (`docs/`, `CLAUDE.md`) se
 > mantienen **privados/locales** — no se publican en este repo porque contienen
@@ -68,8 +75,9 @@ Tres capas de prueba, todas en `app/`:
 |---|---|
 | `npm run test:roundtrip` | **Round-trip** en Node (`node:sqlite`): import → *pérdida* → reconstruye → re-export es **idéntico** (sin pérdida). |
 | `npm run test:fsa` | Escritura atómica de la capa durable contra un mock de File System Access (rotación `.prev` + cadena de lectura de respaldo). |
-| `npm run test:e2e` | Chromium real. Incluye: **(a)** siembra → **borra TODO OPFS → recarga → reconstruye** (`integrity_check: ok`, conteos idénticos); y **(b)** `FsaDurableStore` contra **handles reales** (OPFS) en ambos caminos (`rename` y `copy`): tras N escrituras el disco queda **exactamente `export.json` + `.prev`, cero `.tmp`**. |
-| `npm test` | Todas. |
+| `node tests/queries.node.test.mjs` | **Sprint 2 datos** (Node): alta nueva / dedup / `num_reconsumo`, filtros (`categoria`/`origen`/`fecha_tipo`/búsqueda), detalle, integridad tras escrituras. |
+| `npm run test:e2e` | Chromium real. Durabilidad: borra TODO OPFS → recarga → reconstruye (`integrity_check: ok`); `FsaDurableStore` sobre handles OPFS reales (`rename`+`copy`) deja **`export.json` + `.prev`, cero `.tmp`**. Sprint 2: **multi-pestaña** (líder + follower solo-lectura; **matar al líder a mitad de escritura → promoción → rollback sin corrupción ni pérdida**); **altas no rompen la durabilidad** (carpeta limpia tras N altas). |
+| `npm test` | Unidad + E2E. |
 
 Por defecto usan un **fixture sintético** (`app/tests/fixtures/sample.export.json`) para que
 CI sea autónomo sin datos personales. Para probar con tu **archivo real** (4.242/3.809):

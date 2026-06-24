@@ -1,24 +1,39 @@
-// Boot + recovery orchestrator — the brain of the durability column.
+// Boot + recovery + multi-tab orchestrator — the brain of the app.
 //
-// On startup it decides between two worlds (tecnico.md §3.2):
-//   - OPFS cache is healthy (schema + data + integrity ok) -> use it.
-//   - OPFS is empty/corrupt (the EXPECTED failure mode)     -> reconstruct from the durable
-//     export.json on the user's real disk. No data is lost because the truth was never in OPFS.
+// Sprint 1 (durability): OPFS is a volatile cache; the durable truth is export.json on the
+// user's real disk. On boot, if OPFS is empty/corrupt, reconstruct from the durable export.
 //
-// It also wires the auto-export: any "significant write" (Sprint 2+) marks the DB dirty and a
-// durable backup is flushed after writes and on visibilitychange/pagehide.
+// Sprint 2 (multi-tab): OPFS-SAH-pool is single-connection, so exactly ONE tab — the LEADER
+// — opens the DB and may write. Followers are read-only and proxy reads to the leader over a
+// BroadcastChannel. Leadership is a Web Lock; if the leader tab dies (even mid-write), a
+// follower is promoted and SQLite rolls back any interrupted transaction on open.
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { createDbClient } from './db/client.js';
 import { detectCapabilities } from './durable/capabilities.js';
 import { loadPersistedStore, chooseDurableTarget, forgetDurableTarget } from './durable/store.js';
 import { FsaDurableStore } from './durable/fsa-store.js';
-import { phase, caps, dbStatus, durability, busy, logEvent } from './stores.js';
+import { createTabCoordinator } from './tabs.js';
+import {
+  phase,
+  caps,
+  dbStatus,
+  durability,
+  busy,
+  logEvent,
+  role,
+  archiveEntries,
+  archiveFilters,
+  filterOpts,
+  detail
+} from './stores.js';
 
-let db = null; // worker client
-let durableStore = null; // current durable backend
+let db = null; // worker client (LEADER only)
+let durableStore = null; // current durable backend (LEADER only)
 let capabilities = null;
-let dirty = false; // set by markDirty() when data changes (Sprint 2+)
+let coordinator = null; // multi-tab coordinator
+let currentRole = 'init';
+let dirty = false; // set by markDirty() when data changes
 let lifecycleInstalled = false;
 
 const VERIFY_KEYS = ['obra', 'entrada', 'persona', 'obra_creador'];
@@ -58,13 +73,13 @@ async function safeRead(store) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Public actions (called from the UI; most require a user gesture)
+// Boot: set up multi-tab coordination, then become leader or follower.
 // ---------------------------------------------------------------------------------------
 
 export async function boot() {
   if (!browser) return;
   phase.set('init');
-  busy.set('Iniciando motor SQLite…');
+  busy.set('Coordinando pestañas…');
 
   capabilities = detectCapabilities();
   caps.set(capabilities);
@@ -74,6 +89,58 @@ export async function boot() {
     logEvent('warn', 'Navegador no-Chromium: la durabilidad automática plena no está garantizada (MVP Chromium-only).');
   }
 
+  installLifecycle();
+
+  coordinator = createTabCoordinator({
+    onBecomeLeader: () => becomeLeader(),
+    onBecomeFollower: () => becomeFollower(),
+    runQuery: (method, args) => runLeaderQuery(method, args),
+    onChanged: (counts) => onLeaderChanged(counts)
+  });
+}
+
+// Leader-side dispatcher: reads run directly against the DB. (Followers reach these via
+// the coordinator's BroadcastChannel proxy.)
+function runLeaderQuery(method, args) {
+  switch (method) {
+    case 'listEntries':
+      return db.listEntries(args || {});
+    case 'listObras':
+      return db.listObras(args || {});
+    case 'getEntry':
+      return db.getEntry(args);
+    case 'getObra':
+      return db.getObra(args);
+    case 'filterOptions':
+      return db.filterOptions();
+    case 'status':
+      return db.status();
+    default:
+      throw new Error(`método no permitido: ${method}`);
+  }
+}
+
+// Unified read API used by the UI. Works whether this tab is leader (direct) or follower
+// (proxied to the leader). Writes are leader-only and go through addEntryAction.
+const dataApi = {
+  listEntries: (filters) => coordinator.query('listEntries', filters),
+  listObras: (filters) => coordinator.query('listObras', filters),
+  getEntry: (id) => coordinator.query('getEntry', id),
+  getObra: (id) => coordinator.query('getObra', id),
+  filterOptions: () => coordinator.query('filterOptions'),
+  status: () => coordinator.query('status')
+};
+
+// ---------------------------------------------------------------------------------------
+// LEADER: open the DB, run Sprint 1 durability/recovery, enable writes.
+// ---------------------------------------------------------------------------------------
+
+async function becomeLeader() {
+  const promoted = currentRole === 'follower';
+  busy.set('Iniciando motor SQLite…');
+
+  // Open the DB BEFORE announcing leadership, so role==='leader' implies the DB is ready
+  // (writes/seeds issued the instant we are leader can't race an uninitialized worker).
   db = createDbClient();
   let initStatus;
   try {
@@ -84,11 +151,18 @@ export async function boot() {
     logEvent('error', `Fallo al iniciar el motor: ${err.message}`);
     return;
   }
+  currentRole = 'leader';
+  role.set('leader');
+  logEvent(promoted ? 'warn' : 'ok', promoted
+    ? 'La pestaña principal anterior cerró: ESTA pestaña toma el control (líder).'
+    : 'Esta pestaña es la PRINCIPAL (líder): abre la BD y puede escribir.');
   dbStatus.set(initStatus);
   logEvent('info', `Motor listo (VFS: ${initStatus.vfs}).`);
   if (initStatus.vfs === 'memory') {
     logEvent('warn', 'OPFS no disponible: motor en memoria (datos no persisten entre recargas; durabilidad solo vía export).');
   }
+  // Now the leader can answer follower reads.
+  coordinator.markDbReady();
 
   // Remember a previously chosen durable folder (no prompt).
   try {
@@ -103,9 +177,7 @@ export async function boot() {
     logEvent('warn', `No se pudo restaurar la carpeta durable: ${err.message}`);
   }
 
-  installLifecycle();
-
-  // Decide: trust OPFS, or reconstruct.
+  // Decide: trust OPFS, or reconstruct from the durable export.
   if (initStatus.initialized && initStatus.integrity?.ok && hasData(initStatus.counts)) {
     phase.set('ready');
     logEvent('ok', `OPFS sano: ${fmtCounts(initStatus.counts)} · integridad ${initStatus.integrity.detail}.`);
@@ -114,8 +186,44 @@ export async function boot() {
     logEvent('warn', `OPFS ${why}. Buscando copia durable para reconstruir…`);
     await tryReconstruct();
   }
+  // Only list once a schema exists (a fresh/needs-setup DB has no tables to query).
+  if (['ready', 'reconstructed'].includes(get(phase))) await refreshArchive();
   busy.set(null);
 }
+
+// ---------------------------------------------------------------------------------------
+// FOLLOWER: read-only. Never opens the DB; browses via the leader.
+// ---------------------------------------------------------------------------------------
+
+async function becomeFollower() {
+  currentRole = 'follower';
+  role.set('follower');
+  phase.set('follower');
+  busy.set(null);
+  logEvent('warn', 'Otra pestaña tiene el archivo abierto. Esta pestaña es de SOLO LECTURA.');
+  // Pull counts + archive from the leader (with one retry in case it is still booting).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const st = await dataApi.status();
+      dbStatus.set(st);
+      if (hasData(st.counts)) await refreshArchive();
+      return;
+    } catch (err) {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 600));
+      else logEvent('warn', `Sin datos de la pestaña principal: ${err.message}`);
+    }
+  }
+}
+
+// Follower receives a "data changed" broadcast from the leader.
+async function onLeaderChanged(counts) {
+  if (counts) dbStatus.update((s) => ({ ...(s || {}), counts }));
+  await refreshArchive();
+}
+
+// ---------------------------------------------------------------------------------------
+// Reconstruction (Sprint 1) — leader only.
+// ---------------------------------------------------------------------------------------
 
 async function tryReconstruct() {
   const d = get(durability);
@@ -131,7 +239,6 @@ async function tryReconstruct() {
     logEvent('warn', 'Reautoriza el acceso a la carpeta durable para reconstruir la BD.');
     return;
   }
-  // First run / nothing durable yet.
   phase.set('needs-setup');
   logEvent('warn', 'No hay copia durable. Elige una carpeta durable y carga tu export.json.');
 }
@@ -160,8 +267,90 @@ async function reconstructFrom(text, sourceLabel) {
   }
 }
 
+// ---------------------------------------------------------------------------------------
+// Archive read actions (UI). Available to both roles via dataApi.
+// ---------------------------------------------------------------------------------------
+
+export async function refreshArchive() {
+  try {
+    const filters = get(archiveFilters);
+    const [entries, options] = await Promise.all([dataApi.listEntries(filters), dataApi.filterOptions()]);
+    archiveEntries.set(entries);
+    filterOpts.set(options);
+  } catch (err) {
+    logEvent('warn', `No se pudo cargar el archivo: ${err.message}`);
+  }
+}
+
+export async function setFilters(patch) {
+  archiveFilters.update((f) => ({ ...f, ...patch }));
+  await refreshArchive();
+}
+
+export async function openEntryDetail(entradaId) {
+  try {
+    const data = await dataApi.getEntry(entradaId);
+    if (data) detail.set({ kind: 'entrada', data });
+  } catch (err) {
+    logEvent('warn', `No se pudo abrir la entrada: ${err.message}`);
+  }
+}
+
+export async function openObraDetail(obraId) {
+  try {
+    const data = await dataApi.getObra(obraId);
+    if (data) detail.set({ kind: 'obra', data });
+  } catch (err) {
+    logEvent('warn', `No se pudo abrir la obra: ${err.message}`);
+  }
+}
+
+export function closeDetail() {
+  detail.set(null);
+}
+
+// ---------------------------------------------------------------------------------------
+// Write action (LEADER only): alta rápida -> atomic insert -> durable flush -> notify tabs.
+// ---------------------------------------------------------------------------------------
+
+export async function addEntryAction(payload) {
+  if (currentRole !== 'leader' || !db) {
+    logEvent('warn', 'Solo la pestaña principal puede registrar. Cámbiate a ella.');
+    throw new Error('solo lectura');
+  }
+  busy.set('Registrando…');
+  try {
+    const res = await db.addEntry(payload); // atomic transaction in the worker
+    dbStatus.update((s) => ({ ...(s || {}), counts: res.counts }));
+    markDirty();
+    await backupNow(); // Sprint 1 durable write (atomic, .prev rotation, zero .tmp)
+    coordinator.broadcastChanged(res.counts); // followers refresh
+    await refreshArchive();
+    logEvent('ok', `Registrada "${payload.obra?.titulo}" · ${res.obraCreated ? 'obra nueva' : 'obra existente'} · reconsumo ${res.numReconsumo}.`);
+    return res;
+  } catch (err) {
+    logEvent('error', `No se pudo registrar: ${err.message}`);
+    throw err;
+  } finally {
+    busy.set(null);
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// Durability actions (LEADER only — they touch the DB / durable store).
+// ---------------------------------------------------------------------------------------
+
+function requireLeader() {
+  if (currentRole !== 'leader' || !db) {
+    logEvent('warn', 'Esta acción solo está disponible en la pestaña principal.');
+    return false;
+  }
+  return true;
+}
+
 /** User gesture: choose the durable directory (or test/manual target). */
 export async function chooseDirectory() {
+  if (!requireLeader()) return;
   try {
     const { store, needsPermission } = await chooseDurableTarget(capabilities);
     durableStore = store;
@@ -173,9 +362,9 @@ export async function chooseDirectory() {
     if (text) {
       logEvent('info', 'La carpeta ya contiene un export.json durable. Reconstruyendo desde él…');
       await reconstructFrom(text, 'durable');
+      await refreshArchive();
       return;
     }
-    // Empty folder: if OPFS already holds data, write the first durable backup; else need a seed.
     const st = await db.status();
     if (st.initialized && hasData(st.counts)) {
       await backupNow();
@@ -192,7 +381,7 @@ export async function chooseDirectory() {
 
 /** User gesture: re-grant permission to a remembered folder, then reconstruct/backup. */
 export async function regrantPermission() {
-  if (!durableStore) return;
+  if (!requireLeader() || !durableStore) return;
   try {
     const ok = await durableStore.ensurePermission();
     if (!ok) {
@@ -204,6 +393,7 @@ export async function regrantPermission() {
     const st = await db.status();
     if (!(st.initialized && st.integrity?.ok && hasData(st.counts))) {
       await tryReconstruct();
+      await refreshArchive();
     }
   } catch (err) {
     logEvent('error', `Fallo al reautorizar: ${err.message}`);
@@ -212,9 +402,15 @@ export async function regrantPermission() {
 
 /** User provides an export.json file (first seed, or manual-mode reconstruction). */
 export async function seedFromFile(file) {
+  const text = await file.text();
+  return seedFromText(text);
+}
+
+/** Seed/reconstruct from raw export.json text (also the DOM-independent test entry point). */
+export async function seedFromText(text) {
+  if (!requireLeader()) return;
   try {
-    busy.set('Leyendo export.json…');
-    const text = await file.text();
+    busy.set('Cargando export.json…');
     if (durableStore && typeof durableStore.setPickedText === 'function') durableStore.setPickedText(text);
     await reconstructFrom(text, 'archivo');
     if (durableStore) {
@@ -223,6 +419,7 @@ export async function seedFromFile(file) {
       logEvent('warn', 'Datos cargados en OPFS pero SIN carpeta durable: elige una carpeta para protegerlos.');
       phase.set('needs-setup');
     }
+    await refreshArchive();
   } catch (err) {
     logEvent('error', `No se pudo cargar el archivo: ${err.message}`);
   } finally {
@@ -252,13 +449,13 @@ export async function backupNow() {
   }
 }
 
-/** Mark the DB dirty so the next flush writes a durable backup (Sprint 2 writes call this). */
+/** Mark the DB dirty so the next flush writes a durable backup. */
 export function markDirty() {
   dirty = true;
 }
 
 async function flushIfDirty(reason) {
-  if (dirty && durableStore) {
+  if (dirty && durableStore && currentRole === 'leader') {
     logEvent('info', `Flush durable (${reason}).`);
     await backupNow();
   }
@@ -266,6 +463,7 @@ async function flushIfDirty(reason) {
 
 /** TEST / MANUAL: wipe the OPFS cache, then reconstruct from durable — proves the column. */
 export async function simulateOpfsLoss() {
+  if (!requireLeader()) return;
   busy.set('Simulando pérdida de OPFS…');
   try {
     await db.simulateOpfsLoss();
@@ -273,6 +471,7 @@ export async function simulateOpfsLoss() {
     dbStatus.set(st);
     logEvent('warn', `OPFS vaciado a propósito (initialized=${st.initialized}). Reconstruyendo…`);
     await tryReconstruct();
+    await refreshArchive();
   } catch (err) {
     logEvent('error', `Fallo simulando pérdida de OPFS: ${err.message}`);
   } finally {
@@ -287,28 +486,24 @@ function installLifecycle() {
     if (document.visibilityState === 'hidden') flushIfDirty('visibilitychange');
   });
   window.addEventListener('pagehide', () => {
-    // Best-effort: async FSA writes may not finish on unload, but visibilitychange usually
-    // fires earlier while the page can still do async work.
     flushIfDirty('pagehide');
   });
 }
 
 // Test hooks for Playwright. Gated behind an explicit test context (?test=1 or ?durable=idb)
-// so the destructive helpers (wipeOpfsHard, simulateOpfsLoss) are NOT exposed in normal use.
+// so the destructive helpers are NOT exposed in normal use.
 export function __installTestHooks() {
   if (typeof window === 'undefined') return;
   let testMode = false;
   try {
     const p = new URLSearchParams(window.location.search);
-    testMode = p.get('test') === '1' || p.get('durable') === 'idb';
+    testMode = p.get('test') === '1' || ['idb', 'fsa-opfs'].includes(p.get('durable'));
   } catch {
     /* ignore */
   }
   if (!testMode) return;
 
-  // Harness that runs the REAL FsaDurableStore against a real OPFS directory handle (OPFS
-  // handles are genuine FileSystemDirectoryHandle, with the same createWritable/move/remove
-  // as a user-picked folder). This is the automated regression for the orphan-.tmp bug.
+  // Harness that runs the REAL FsaDurableStore against a real OPFS directory handle.
   window.__ocioFsa = {
     async run({ writes = 4, forceCopy = false } = {}) {
       const root = await navigator.storage.getDirectory();
@@ -352,26 +547,42 @@ export function __installTestHooks() {
     exportJson: () => db.exportJson(),
     simulateOpfsLoss,
     backupNow,
+    seedFromText: (text) => seedFromText(text),
+    addEntry: (payload) => addEntryAction(payload),
+    listEntries: (filters) => dataApi.listEntries(filters || {}),
     getDurability: () => get(durability),
     getPhase: () => get(phase),
+    getRole: () => currentRole,
+    isLeader: () => coordinator?.isLeader?.() ?? false,
     forgetDurableTarget,
-    // Faithful "OPFS vanished" simulation: release the SAH handles, then delete EVERY
-    // OPFS entry from the page context. The durable copy (real disk / IndexedDB in tests)
-    // is untouched, so the subsequent reload must reconstruct with zero loss.
+    // List the FSA-over-OPFS durable folder (?durable=fsa-opfs) to assert it stays clean.
+    listDurableFolder: async () => {
+      try {
+        const root = await navigator.storage.getDirectory();
+        const dir = await root.getDirectoryHandle('durable-fsa');
+        const names = [];
+        // eslint-disable-next-line no-restricted-syntax
+        for await (const [n] of dir.entries()) names.push(n);
+        return names.sort();
+      } catch {
+        return [];
+      }
+    },
+    // Crash-recovery hooks (leader only): arm an uncommitted write, then the test kills
+    // this tab; another tab is promoted and must roll back cleanly.
+    beginUncommitted: () => db.__beginUncommitted(),
+    probe: () => db.__probe(),
+    // Faithful "OPFS vanished" simulation for the durability test.
     wipeOpfsHard: async () => {
       const root = await navigator.storage.getDirectory();
-      // List BEFORE releasing — removeVfs() cleans up the SAH-pool dir itself, so we record
-      // what OPFS held while the worker still has it open.
       const before = [];
       // eslint-disable-next-line no-restricted-syntax
       for await (const [name] of root.entries()) before.push(name);
-
       try {
         await db.releaseForWipe();
       } catch (err) {
         console.warn('releaseForWipe failed (continuing):', err);
       }
-
       const removed = [];
       // eslint-disable-next-line no-restricted-syntax
       for await (const [name] of root.entries()) {
@@ -382,7 +593,6 @@ export function __installTestHooks() {
           console.warn('removeEntry failed for', name, err);
         }
       }
-
       const remaining = [];
       // eslint-disable-next-line no-restricted-syntax
       for await (const [name] of root.entries()) remaining.push(name);

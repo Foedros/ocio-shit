@@ -19,6 +19,14 @@ import {
   foreignKeyViolations,
   isInitialized
 } from './io.js';
+import {
+  addEntry,
+  listEntries,
+  listObras,
+  getEntry,
+  getObra,
+  filterOptions
+} from './queries.js';
 
 const POOL_NAME = 'ocioshit-opfs-pool';
 const DB_FILENAME = '/ocioshit.sqlite3';
@@ -67,13 +75,27 @@ async function initEngine(wasmUrl) {
     print: () => {},
     printErr: (...a) => console.error('[sqlite]', ...a)
   });
-  try {
-    poolUtil = await sqlite3.installOpfsSAHPoolVfs({ name: POOL_NAME, clearOnInit: false });
-  } catch (err) {
-    // Safari < 17 / OPFS sync access unavailable -> degrade to in-memory engine.
-    // Durability still holds: the truth is export.json on disk, not OPFS.
-    poolUtil = null;
-    console.warn('[worker] OPFS-SAH-pool unavailable, falling back to in-memory:', err);
+  // Acquire the SAH-pool VFS with retries: when a leader tab dies and THIS tab is promoted,
+  // the dead tab's OPFS sync-access handles may take a moment to be released. Retrying avoids
+  // a spurious fall back to the volatile in-memory engine during a hand-off.
+  poolUtil = null;
+  let lastErr = null;
+  // ~4s of retries: a killed leader can take a moment to release its OPFS sync-access handles
+  // (common real-browser case). If they stay locked (e.g. a large DB killed mid-transaction),
+  // we fall back to the in-memory engine and reconstruct from the durable export — SAFE, since
+  // the truth is export.json on disk, not OPFS. OPFS is reclaimed on the next reload.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      poolUtil = await sqlite3.installOpfsSAHPoolVfs({ name: POOL_NAME, clearOnInit: false });
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+  if (!poolUtil) {
+    console.warn('[worker] OPFS-SAH-pool unavailable, falling back to in-memory:', lastErr);
   }
   openDb();
 }
@@ -169,6 +191,35 @@ async function releaseForWipe() {
   return { released: true };
 }
 
+// --- Sprint 2: archive read/write (the leader's worker is the ONLY DB connection) -------
+function addEntryAndCount(payload) {
+  const res = addEntry(adapter, payload);
+  return { ...res, counts: counts(adapter) };
+}
+
+// TEST ONLY: open a transaction inserting a sentinel obra WITHOUT committing, leaving the
+// transaction open. When the tab is killed, the next leader must roll this back on open.
+function beginUncommitted() {
+  adapter.exec('BEGIN IMMEDIATE');
+  adapter.run('INSERT INTO obra (id, titulo, categoria) VALUES (?, ?, ?)', [
+    crypto.randomUUID(),
+    '__SENTINEL_UNCOMMITTED__',
+    'pelicula'
+  ]);
+  // Intentionally NO commit — the transaction stays open until this worker dies.
+  return { armed: true };
+}
+function probe() {
+  const c = (t) => adapter.get('SELECT COUNT(*) AS c FROM obra WHERE titulo = ?', [t]).c;
+  return {
+    vfs,
+    sentinel: c('__SENTINEL_UNCOMMITTED__'),
+    integrity: integrityCheck(adapter),
+    foreignKeyViolations: foreignKeyViolations(adapter),
+    counts: counts(adapter)
+  };
+}
+
 const HANDLERS = {
   init: ({ wasmUrl }) => initEngine(wasmUrl).then(status),
   status: () => status(),
@@ -176,7 +227,17 @@ const HANDLERS = {
   exportJson: () => exportJson(),
   rebuildFromExport: ({ json }) => rebuildFromExport(json),
   simulateOpfsLoss: () => simulateOpfsLoss(),
-  releaseForWipe: () => releaseForWipe()
+  releaseForWipe: () => releaseForWipe(),
+  // archive
+  addEntry: (payload) => addEntryAndCount(payload),
+  listEntries: ({ filters }) => listEntries(adapter, filters),
+  listObras: ({ filters }) => listObras(adapter, filters),
+  getEntry: ({ entradaId }) => getEntry(adapter, entradaId),
+  getObra: ({ obraId }) => getObra(adapter, obraId),
+  filterOptions: () => filterOptions(adapter),
+  // test-only crash-recovery hooks
+  __beginUncommitted: () => beginUncommitted(),
+  __probe: () => probe()
 };
 
 self.onmessage = async (e) => {
