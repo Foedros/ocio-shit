@@ -1,0 +1,19 @@
+{
+  "name": "Ocio Shit",
+  "short_name": "Ocio Shit",
+  "description": "Archivo cultural personal de por vida. Local-first, durable, offline.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0e0d10",
+  "theme_color": "#0e0d10",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}

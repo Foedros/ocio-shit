@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ocioshit.local/schema/v2",
+  "title": "Ocio Shit — esquema de intercambio v2",
+  "description": "Esquema exportable de las entidades nucleares y de sistema. v2: entrada.fecha nullable.",
+  "type": "object",
+  "properties": {
+    "schema_version": { "type": "integer", "const": 2 },
+    "obras": { "type": "array", "items": { "$ref": "#/$defs/Obra" } },
+    "entradas": { "type": "array", "items": { "$ref": "#/$defs/Entrada" } },
+    "etiquetas": { "type": "array", "items": { "$ref": "#/$defs/Etiqueta" } },
+    "colecciones": { "type": "array", "items": { "$ref": "#/$defs/Coleccion" } },
+    "logros": { "type": "array", "items": { "$ref": "#/$defs/Logro" } },
+    "titulos": { "type": "array", "items": { "$ref": "#/$defs/Titulo" } },
+    "momentos_canon": { "type": "array", "items": { "$ref": "#/$defs/MomentoCanon" } },
+    "etapas": { "type": "array", "items": { "$ref": "#/$defs/Etapa" } }
+  },
+  "required": ["schema_version", "obras", "entradas"],
+  "$defs": {
+    "Obra": {
+      "type": "object",
+      "required": ["id", "titulo", "categoria"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "titulo": { "type": "string", "minLength": 1 },
+        "categoria": { "enum": ["pelicula", "serie", "libro", "videojuego", "comic", "ocio_libre"] },
+        "subtipo": { "enum": ["concierto", "museo", "viaje", "evento", "otro", null] },
+        "anio_obra": { "type": ["integer", "null"] },
+        "decada": { "type": ["integer", "null"], "description": "derivado de anio_obra" },
+        "duracion_canonica_min": { "type": ["integer", "null"], "minimum": 0 },
+        "idioma_original": { "type": ["string", "null"], "description": "ISO 639" },
+        "pais_origen": { "type": ["string", "null"], "description": "ISO 3166" },
+        "creador": { "type": ["string", "null"], "description": "solo display; las stats por autor leen obra_creador" },
+        "saga": { "type": ["string", "null"] },
+        "formato_habitual": { "enum": ["cine", "streaming", "fisico", "papel", "ebook", "audiolibro", "consola", "pc", "movil", "otro", null] },
+        "portada_uri": { "type": ["string", "null"] },
+        "fuente_externa": { "type": ["string", "null"] },
+        "clave_dedup": { "type": ["string", "null"], "readOnly": true, "description": "derivado: lower(titulo)|categoria|coalesce(anio_obra,''); UNIQUE" },
+        "metadata": { "type": ["object", "null"], "description": "escotilla JSON para campos raros sin migracion" },
+        "creado_en": { "type": "string", "format": "date-time" },
+        "actualizado_en": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Entrada": {
+      "type": "object",
+      "required": ["id", "obra_id", "fecha", "estado"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "obra_id": { "type": "string", "format": "uuid" },
+        "fecha": { "type": ["string", "null"], "format": "date", "description": "NULL = pendiente / centinela pre-2023 / fecha perdida; discriminar por estado + metadata.origen_fecha" },
+        "estado": { "enum": ["pendiente", "en_curso", "terminado", "abandonado"] },
+        "duracion_min": { "type": ["integer", "null"], "minimum": 0 },
+        "clase_tiempo": { "enum": ["electivo", "habito"], "default": "electivo" },
+        "num_reconsumo": { "type": "integer", "minimum": 0, "default": 0 },
+        "es_reconsumo": { "type": "boolean", "readOnly": true, "description": "derivado: num_reconsumo > 0" },
+        "valoracion": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+        "impacto_emocional": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+        "nota": { "type": ["string", "null"] },
+        "plataforma_id": { "type": ["string", "null"] },
+        "ubicacion": { "type": ["string", "null"] },
+        "estado_animo": { "type": ["string", "null"] },
+        "etapa_id": { "type": ["string", "null"] },
+        "metadata": { "type": ["object", "null"], "description": "escotilla JSON; incluye origen_fecha (centinela_pre_registro|desconocida) y fecha_aproximada" },
+        "creado_en": { "type": "string", "format": "date-time" },
+        "actualizado_en": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Etiqueta": {
+      "type": "object",
+      "required": ["id", "nombre"],
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "taxonomia": { "enum": ["genero", "tema", "tono", "tecnica", "meta", null] },
+        "origen": { "enum": ["manual", "ia"], "default": "manual" },
+        "color": { "type": ["string", "null"] }
+      }
+    },
+    "Coleccion": {
+      "type": "object",
+      "required": ["id", "nombre", "tipo"],
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "descripcion": { "type": ["string", "null"] },
+        "tipo": { "enum": ["manual", "inteligente", "ia"] },
+        "regla_json": { "type": ["object", "null"], "description": "solo tipo=inteligente" },
+        "portada_uri": { "type": ["string", "null"] }
+      }
+    },
+    "Logro": {
+      "type": "object",
+      "required": ["id", "nombre"],
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "descripcion": { "type": ["string", "null"] },
+        "clase": { "type": ["string", "null"] },
+        "rareza": { "enum": ["comun", "raro", "epico", "legendario", null] },
+        "exp": { "type": "integer", "minimum": 0, "default": 0 },
+        "condicion_json": { "type": ["object", "null"] }
+      }
+    },
+    "Titulo": {
+      "type": "object",
+      "required": ["id", "nombre"],
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "descripcion": { "type": ["string", "null"] },
+        "rareza": { "enum": ["comun", "raro", "epico", "legendario", null] },
+        "condicion_json": { "type": ["object", "null"] }
+      }
+    },
+    "MomentoCanon": {
+      "type": "object",
+      "required": ["id", "entrada_id", "titulo"],
+      "properties": {
+        "id": { "type": "string" },
+        "entrada_id": { "type": "string" },
+        "titulo": { "type": "string" },
+        "por_que_importa": { "type": ["string", "null"] },
+        "fecha": { "type": ["string", "null"], "format": "date" },
+        "destacado": { "type": "boolean", "default": false }
+      }
+    },
+    "Etapa": {
+      "type": "object",
+      "required": ["id", "nombre", "fecha_inicio"],
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "fecha_inicio": { "type": "string", "format": "date" },
+        "fecha_fin": { "type": ["string", "null"], "format": "date" },
+        "descripcion": { "type": ["string", "null"] },
+        "color": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

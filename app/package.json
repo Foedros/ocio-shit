@@ -1,0 +1,36 @@
+{
+	"name": "ocioshit-app",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"prepare-assets": "node scripts/prepare-assets.mjs",
+		"predev": "npm run prepare-assets",
+		"prebuild": "npm run prepare-assets",
+		"dev": "vite dev",
+		"build": "vite build",
+		"postbuild": "node -e \"require('fs').writeFileSync('build/.nojekyll','')\"",
+		"preview": "vite preview",
+		"prepare": "node scripts/prepare-assets.mjs && svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
+		"test:roundtrip": "node tests/roundtrip.node.test.mjs",
+		"test:fsa": "node tests/fsa-store.node.test.mjs",
+		"test:unit": "npm run test:roundtrip && npm run test:fsa",
+		"test:e2e": "playwright test",
+		"pretest:e2e": "npm run prepare-assets",
+		"test": "npm run test:unit && npm run test:e2e"
+	},
+	"devDependencies": {
+		"@playwright/test": "^1.61.1",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.63.0",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"svelte": "^5.56.1",
+		"svelte-check": "^4.6.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.0.16"
+	},
+	"dependencies": {
+		"@sqlite.org/sqlite-wasm": "^3.53.0-build1"
+	}
+}
