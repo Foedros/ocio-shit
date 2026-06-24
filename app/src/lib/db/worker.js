@@ -28,6 +28,17 @@ import {
   getObra,
   filterOptions
 } from './queries.js';
+import {
+  deriveDecadas,
+  listColecciones,
+  getColeccion,
+  createColeccion,
+  deleteColeccion,
+  materializeColeccion,
+  seedTanda1,
+  rematerializeAll
+} from './colecciones.js';
+import { applyR1, createEtiquetaManual, tagObra, untagObra, listEtiquetas } from './etiquetas.js';
 
 const POOL_NAME = 'ocioshit-opfs-pool';
 const DB_FILENAME = '/ocioshit.sqlite3';
@@ -241,6 +252,21 @@ const HANDLERS = {
   getEntry: ({ entradaId }) => getEntry(adapter, entradaId),
   getObra: ({ obraId }) => getObra(adapter, obraId),
   filterOptions: () => filterOptions(adapter),
+  // colecciones (Sprint 3)
+  deriveDecadas: () => deriveDecadas(adapter),
+  seedTanda1: ({ year } = {}) => seedTanda1(adapter, year ? { year } : {}),
+  rematerializeColecciones: () => rematerializeAll(adapter),
+  listColecciones: () => listColecciones(adapter),
+  getColeccion: ({ id }) => getColeccion(adapter, id),
+  createColeccion: ({ def }) => ({ id: createColeccion(adapter, def) }),
+  deleteColeccion: ({ id }) => deleteColeccion(adapter, id),
+  materializeColeccion: ({ id }) => materializeColeccion(adapter, id),
+  // etiquetas (Sprint 3)
+  applyR1: () => applyR1(adapter),
+  createEtiquetaManual: ({ def }) => ({ id: createEtiquetaManual(adapter, def) }),
+  tagObra: ({ obraId, etiquetaId }) => tagObra(adapter, obraId, etiquetaId),
+  untagObra: ({ obraId, etiquetaId }) => untagObra(adapter, obraId, etiquetaId),
+  listEtiquetas: () => listEtiquetas(adapter),
   // test-only crash-recovery hooks
   __beginUncommitted: () => beginUncommitted(),
   __probe: () => probe()

@@ -24,6 +24,8 @@ export const archiveEntries = writable([]); // current filtered list of entradas
 export const archiveFilters = writable({ categoria: '', origen: '', fecha_tipo: '', search: '' });
 export const filterOpts = writable({ categorias: [], origenes: [], fecha_tipos: [] });
 export const detail = writable(null); // { kind:'obra'|'entrada', data } selected for the detail panel
+export const colecciones = writable([]); // list of collections with n_obras
+export const coleccionSel = writable(null); // { coleccion, obras } currently opened
 export const toast = writable(null); // { msg, kind:'ok'|'error' } transient confirmation
 
 let toastTimer;

@@ -48,6 +48,21 @@ export function createDbClient() {
     getEntry: (entradaId) => call('getEntry', { entradaId }),
     getObra: (obraId) => call('getObra', { obraId }),
     filterOptions: () => call('filterOptions'),
+    // colecciones (Sprint 3)
+    deriveDecadas: () => call('deriveDecadas'),
+    seedTanda1: (year) => call('seedTanda1', { year }),
+    rematerializeColecciones: () => call('rematerializeColecciones'),
+    listColecciones: () => call('listColecciones'),
+    getColeccion: (id) => call('getColeccion', { id }),
+    createColeccion: (def) => call('createColeccion', { def }),
+    deleteColeccion: (id) => call('deleteColeccion', { id }),
+    materializeColeccion: (id) => call('materializeColeccion', { id }),
+    // etiquetas (Sprint 3)
+    applyR1: () => call('applyR1'),
+    createEtiquetaManual: (def) => call('createEtiquetaManual', { def }),
+    tagObra: (obraId, etiquetaId) => call('tagObra', { obraId, etiquetaId }),
+    untagObra: (obraId, etiquetaId) => call('untagObra', { obraId, etiquetaId }),
+    listEtiquetas: () => call('listEtiquetas'),
     // test-only
     __beginUncommitted: () => call('__beginUncommitted'),
     __probe: () => call('__probe'),

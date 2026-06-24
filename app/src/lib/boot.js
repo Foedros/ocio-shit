@@ -26,7 +26,9 @@ import {
   archiveFilters,
   filterOpts,
   detail,
-  showToast
+  showToast,
+  colecciones,
+  coleccionSel
 } from './stores.js';
 
 let db = null; // worker client (LEADER only)
@@ -116,6 +118,12 @@ function runLeaderQuery(method, args) {
       return db.filterOptions();
     case 'status':
       return db.status();
+    case 'listColecciones':
+      return db.listColecciones();
+    case 'getColeccion':
+      return db.getColeccion(args);
+    case 'listEtiquetas':
+      return db.listEtiquetas();
     default:
       throw new Error(`método no permitido: ${method}`);
   }
@@ -129,7 +137,9 @@ const dataApi = {
   getEntry: (id) => coordinator.query('getEntry', id),
   getObra: (id) => coordinator.query('getObra', id),
   filterOptions: () => coordinator.query('filterOptions'),
-  status: () => coordinator.query('status')
+  status: () => coordinator.query('status'),
+  listColecciones: () => coordinator.query('listColecciones'),
+  getColeccion: (id) => coordinator.query('getColeccion', id)
 };
 
 // ---------------------------------------------------------------------------------------
@@ -188,7 +198,10 @@ async function becomeLeader() {
     await tryReconstruct();
   }
   // Only list once a schema exists (a fresh/needs-setup DB has no tables to query).
-  if (['ready', 'reconstructed'].includes(get(phase))) await refreshArchive();
+  if (['ready', 'reconstructed'].includes(get(phase))) {
+    await refreshArchive();
+    await ensureColeccionesSeeded();
+  }
   busy.set(null);
 }
 
@@ -207,7 +220,10 @@ async function becomeFollower() {
     try {
       const st = await dataApi.status();
       dbStatus.set(st);
-      if (hasData(st.counts)) await refreshArchive();
+      if (hasData(st.counts)) {
+        await refreshArchive();
+        await refreshColecciones();
+      }
       return;
     } catch (err) {
       if (attempt === 0) await new Promise((r) => setTimeout(r, 600));
@@ -220,6 +236,7 @@ async function becomeFollower() {
 async function onLeaderChanged(counts) {
   if (counts) dbStatus.update((s) => ({ ...(s || {}), counts }));
   await refreshArchive();
+  await refreshColecciones();
 }
 
 // ---------------------------------------------------------------------------------------
@@ -379,6 +396,148 @@ export async function deleteEntryAction(entradaId) {
 }
 
 // ---------------------------------------------------------------------------------------
+// Colecciones (Sprint 3). Reads via dataApi (proxied for followers); writes leader-only,
+// each flushing the durable export (single-flight) like any other write.
+// ---------------------------------------------------------------------------------------
+
+export async function refreshColecciones() {
+  try {
+    colecciones.set(await dataApi.listColecciones());
+  } catch (err) {
+    logEvent('warn', `No se pudieron cargar colecciones: ${err.message}`);
+  }
+}
+
+async function ensureColeccionesSeeded() {
+  if (currentRole !== 'leader' || !db) return;
+  try {
+    // Backfill the derived `decada` field (idempotent) so decade collections aren't empty.
+    const der = await db.deriveDecadas();
+    if (der.updated > 0) logEvent('info', `Década derivada (campo calculado) en ${der.updated} obras.`);
+
+    const list = await db.listColecciones();
+    let changed = der.updated > 0;
+    if (list.length === 0) {
+      logEvent('info', 'Sembrando Tanda 1 de colecciones…');
+      const res = await db.seedTanda1();
+      logEvent('ok', `Tanda 1 materializada: ${res.created} colecciones, ${res.materialized} membresías.`);
+      changed = true;
+    } else if (der.updated > 0) {
+      await db.rematerializeColecciones(); // decadas changed -> refresh memberships
+    }
+    if (changed) {
+      markDirty();
+      try {
+        await backupNow();
+      } catch {
+        logEvent('warn', 'Colecciones/derivación guardadas; el respaldo durable se reintentará.');
+      }
+    }
+    await refreshColecciones();
+  } catch (err) {
+    logEvent('warn', `Colecciones: ${err.message}`);
+  }
+}
+
+export async function openColeccion(id) {
+  try {
+    const d = await dataApi.getColeccion(id);
+    if (d) coleccionSel.set(d);
+  } catch (err) {
+    logEvent('warn', `No se pudo abrir la colección: ${err.message}`);
+  }
+}
+export function closeColeccion() {
+  coleccionSel.set(null);
+}
+
+export async function rematerializeColeccionesAction() {
+  if (!requireLeader()) return;
+  busy.set('Recalculando colecciones…');
+  try {
+    const res = await db.rematerializeColecciones();
+    markDirty();
+    try {
+      await backupNow();
+    } catch {
+      /* retried */
+    }
+    coordinator.broadcastChanged((await db.status()).counts);
+    await refreshColecciones();
+    logEvent('ok', `Colecciones recalculadas: ${res.collections} colecciones, ${res.members} membresías.`);
+    showToast('Colecciones actualizadas');
+  } catch (err) {
+    logEvent('error', `No se pudo recalcular: ${err.message}`);
+  } finally {
+    busy.set(null);
+  }
+}
+
+export async function createColeccionAction(def) {
+  if (!requireLeader()) {
+    throw new Error('solo lectura');
+  }
+  busy.set('Creando colección…');
+  try {
+    const { id } = await db.createColeccion(def);
+    if (def.tipo === 'inteligente') await db.materializeColeccion(id);
+    markDirty();
+    try {
+      await backupNow();
+    } catch {
+      /* retried */
+    }
+    await refreshColecciones();
+    showToast('Colección creada');
+    return id;
+  } catch (err) {
+    logEvent('error', `No se pudo crear la colección: ${err.message}`);
+    showToast('No se pudo crear', 'error');
+    throw err;
+  } finally {
+    busy.set(null);
+  }
+}
+
+export async function deleteColeccionAction(id) {
+  if (!requireLeader()) return;
+  try {
+    await db.deleteColeccion(id);
+    markDirty();
+    try {
+      await backupNow();
+    } catch {
+      /* retried */
+    }
+    coleccionSel.set(null);
+    await refreshColecciones();
+    showToast('Colección eliminada');
+  } catch (err) {
+    logEvent('error', `No se pudo eliminar la colección: ${err.message}`);
+  }
+}
+
+export async function applyR1Action() {
+  if (!requireLeader()) return;
+  busy.set('Derivando etiquetas (R1)…');
+  try {
+    const r = await db.applyR1();
+    markDirty();
+    try {
+      await backupNow();
+    } catch {
+      /* retried */
+    }
+    logEvent('ok', `R1: ${r.tags} etiquetas, ${r.links} vínculos.`);
+    showToast(r.tags ? `R1: ${r.tags} etiquetas derivadas` : 'R1: sin campos derivables (decada/idioma/país vacíos)');
+  } catch (err) {
+    logEvent('error', `R1 falló: ${err.message}`);
+  } finally {
+    busy.set(null);
+  }
+}
+
+// ---------------------------------------------------------------------------------------
 // Durability actions (LEADER only — they touch the DB / durable store).
 // ---------------------------------------------------------------------------------------
 
@@ -462,6 +621,7 @@ export async function seedFromText(text) {
       phase.set('needs-setup');
     }
     await refreshArchive();
+    await ensureColeccionesSeeded();
   } catch (err) {
     logEvent('error', `No se pudo cargar el archivo: ${err.message}`);
   } finally {
@@ -613,6 +773,14 @@ export function __installTestHooks() {
     deleteEntry: (id) => deleteEntryAction(id),
     listEntries: (filters) => dataApi.listEntries(filters || {}),
     getObra: (id) => dataApi.getObra(id),
+    // colecciones / etiquetas (Sprint 3)
+    listColecciones: () => dataApi.listColecciones(),
+    getColeccion: (id) => dataApi.getColeccion(id),
+    createColeccion: (def) => createColeccionAction(def),
+    deleteColeccion: (id) => deleteColeccionAction(id),
+    rematerialize: () => rematerializeColeccionesAction(),
+    applyR1: () => applyR1Action(),
+    listEtiquetas: () => coordinator.query('listEtiquetas'),
     getDurability: () => get(durability),
     getPhase: () => get(phase),
     getRole: () => currentRole,

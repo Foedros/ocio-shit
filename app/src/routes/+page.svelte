@@ -5,6 +5,7 @@
   import ArchiveList from '$lib/components/ArchiveList.svelte';
   import DetailPanel from '$lib/components/DetailPanel.svelte';
   import DurabilityPanel from '$lib/components/DurabilityPanel.svelte';
+  import ColeccionesPanel from '$lib/components/ColeccionesPanel.svelte';
   import QuickAddForm from '$lib/components/QuickAddForm.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -31,6 +32,7 @@
 
 <nav class="tabs">
   <button class:active={view === 'diario'} onclick={() => (view = 'diario')}>Diario</button>
+  <button class:active={view === 'colecciones'} onclick={() => (view = 'colecciones')}>Colecciones</button>
   <button class:active={view === 'durabilidad'} onclick={() => (view = 'durabilidad')}>Durabilidad</button>
 </nav>
 
@@ -45,6 +47,8 @@
   {:else}
     <ArchiveList />
   {/if}
+{:else if view === 'colecciones'}
+  <ColeccionesPanel />
 {:else}
   <DurabilityPanel />
 {/if}
