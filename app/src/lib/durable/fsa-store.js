@@ -2,10 +2,24 @@
 // once. This is the DURABLE TRUTH (tecnico.md §1/§3.2) — the only layer that survives a
 // browser/OPFS wipe. Writes are ATOMIC: the live file is never written in place.
 //
-// File names inside the chosen directory:
+// ROOT CAUSE FIXED (2026-06-24): the previous version promoted the temp file with
+// FileSystemFileHandle.move() (rename). move() works on OPFS but is UNRELIABLE on the real
+// local filesystem in Chromium (notably Windows): the calls threw, the catches swallowed
+// them, and the folder was left with an orphan .tmp and no .prev rotation. Because OPFS and
+// the in-memory mock both honour move(), every automated test passed while real disk broke.
+//
+// Durability cannot hinge on move(). Strategy now:
+//   - Rotate .prev by COPY (read current target, write prev) — no move().
+//   - Write the target with createWritable(), which ALREADY performs an atomic internal
+//     temp(.crswap)+rename and commits only on close() — the OS-blessed atomic write.
+//   - Keep move() only as an opportunistic fast path with an automatic copy fallback; once
+//     it fails on a given filesystem, never try it again.
+//   - GUARANTEE no orphan .tmp via a finally that always removes it.
+//
+// File names inside the chosen directory (steady state = exactly the first two):
 //   ocioshit.export.json       <- the durable truth
 //   ocioshit.export.prev.json  <- previous generation (one-deep safety net)
-//   ocioshit.export.json.tmp   <- scratch; fully written, then renamed into place
+//   ocioshit.export.json.tmp   <- scratch (fast path only); never left behind
 export const TARGET = 'ocioshit.export.json';
 const PREV = 'ocioshit.export.prev.json';
 const TMP = 'ocioshit.export.json.tmp';
@@ -15,10 +29,16 @@ const supportsMove =
   typeof FileSystemFileHandle.prototype.move === 'function';
 
 export class FsaDurableStore {
-  /** @param {FileSystemDirectoryHandle} dir */
-  constructor(dir) {
+  /**
+   * @param {FileSystemDirectoryHandle} dir
+   * @param {{ forceCopy?: boolean }} [opts] forceCopy simulates a filesystem whose move()
+   *   is unreliable (used by tests to exercise the production fallback path deterministically).
+   */
+  constructor(dir, { forceCopy = false } = {}) {
     this.dir = dir;
     this.kind = 'fsa';
+    this._forceCopy = forceCopy;
+    this._moveBroken = false; // once move() fails on this folder, stop trying it
   }
 
   describe() {
@@ -51,6 +71,16 @@ export class FsaDurableStore {
     }
   }
 
+  // Atomic at the filesystem level: createWritable() writes to an internal swap file and
+  // only renames it over `name` on close(). A crash mid-write leaves `name` untouched.
+  async _writeFile(name, text) {
+    const h = await this.dir.getFileHandle(name, { create: true });
+    const w = await h.createWritable({ keepExistingData: false });
+    await w.write(text);
+    await w.close();
+    return h;
+  }
+
   /** Read the durable export; falls back to prev/tmp if the live file is missing. */
   async readExport() {
     return (
@@ -60,48 +90,50 @@ export class FsaDurableStore {
     );
   }
 
-  /** Atomic write: fully write a temp file, rotate the old target to prev, rename temp in. */
+  /**
+   * Atomic durable write with one-deep .prev rotation. Final on-disk state after any
+   * number of calls: exactly TARGET + PREV, never an orphan TMP.
+   * @returns {Promise<{at:number, method:'rename'|'copy'}>}
+   */
   async writeExportAtomic(text) {
     if (!(await this.ensurePermission())) throw new Error('permiso denegado sobre la carpeta');
+    let method = 'copy';
+    try {
+      // 1. Rotate: copy the CURRENT target to prev BEFORE we touch it. Copy (read+write),
+      //    not move() — robust on every filesystem. If the new write later fails, the old
+      //    target stays intact AND prev holds the last good copy: no data can be lost.
+      const cur = await this._readFile(TARGET);
+      if (cur !== null) await this._writeFile(PREV, cur);
 
-    // 1. Write the full payload to a temp file and commit it (close swaps atomically).
-    const tmpH = await this.dir.getFileHandle(TMP, { create: true });
-    const w = await tmpH.createWritable({ keepExistingData: false });
-    await w.write(text);
-    await w.close();
-
-    if (supportsMove) {
-      // 2. Rotate the current target to prev (atomic rename; replaces old prev).
-      try {
-        const curH = await this.dir.getFileHandle(TARGET);
-        await curH.move(PREV);
-      } catch {
-        /* first write: no existing target */
-      }
-      // 3. Rename temp -> target (atomic). Retry through a remove if the dest lingers.
-      try {
-        await tmpH.move(TARGET);
-      } catch {
+      // 2. Promote the new content into target.
+      if (supportsMove && !this._forceCopy && !this._moveBroken) {
+        // Fast path: explicit temp + atomic rename.
+        await this._writeFile(TMP, text);
         try {
-          await this.dir.removeEntry(TARGET);
+          const tmpH = await this.dir.getFileHandle(TMP);
+          await tmpH.move(TARGET); // atomic rename (overwrites the existing target)
+          method = 'rename';
         } catch {
-          /* ignore */
+          // move() is unreliable on this filesystem — fall back to a direct atomic write,
+          // for this call and every future one on this folder.
+          this._moveBroken = true;
+          await this._writeFile(TARGET, text);
+          method = 'copy';
         }
-        await tmpH.move(TARGET);
+      } else {
+        // Robust path: direct atomic write (createWritable does the temp+rename internally).
+        await this._writeFile(TARGET, text);
+        method = 'copy';
       }
-    } else {
-      // No move(): createWritable on the target is itself commit-on-close atomic.
-      const tH = await this.dir.getFileHandle(TARGET, { create: true });
-      const w2 = await tH.createWritable({ keepExistingData: false });
-      await w2.write(text);
-      await w2.close();
+    } finally {
+      // 3. GUARANTEE no orphan temp, on every path and even if a step above threw.
       try {
         await this.dir.removeEntry(TMP);
       } catch {
-        /* ignore */
+        /* none present — fine */
       }
     }
-    return { at: Date.now() };
+    return { at: Date.now(), method };
   }
 
   /** Last-modified time (ms) of the durable export, or null if none yet. */

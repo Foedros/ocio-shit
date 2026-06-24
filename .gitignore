@@ -12,6 +12,13 @@ data/
 *.db-journal
 *.db-wal
 
+# Durable test folders + durable export files written to disk during manual testing
+# (contain the personal archive). Never commit.
+carpeta_durable/
+**/ocioshit.export.json
+**/ocioshit.export.prev.json
+**/ocioshit.export.json.tmp
+
 # Design docs + handoff stay LOCAL (contain personal aggregate stats). The PUBLIC repo
 # carries only the app shell + schema. Decision: 2026-06-24.
 docs/

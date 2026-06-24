@@ -67,9 +67,9 @@ Tres capas de prueba, todas en `app/`:
 | Comando | Qué prueba |
 |---|---|
 | `npm run test:roundtrip` | **Round-trip** en Node (`node:sqlite`): import → *pérdida* → reconstruye → re-export es **idéntico** (sin pérdida). |
-| `npm run test:fsa` | **Escritura atómica** de la capa durable (temp + `rename` + rotación `.prev` + cadena de lectura de respaldo) contra un mock de File System Access. |
-| `npm run test:e2e` | **El de verdad:** Chromium real → siembra `export.json` → **borra TODO OPFS → recarga → reconstruye** desde la copia durable. Verifica `integrity_check: ok` y conteos idénticos. |
-| `npm test` | Las tres. |
+| `npm run test:fsa` | Escritura atómica de la capa durable contra un mock de File System Access (rotación `.prev` + cadena de lectura de respaldo). |
+| `npm run test:e2e` | Chromium real. Incluye: **(a)** siembra → **borra TODO OPFS → recarga → reconstruye** (`integrity_check: ok`, conteos idénticos); y **(b)** `FsaDurableStore` contra **handles reales** (OPFS) en ambos caminos (`rename` y `copy`): tras N escrituras el disco queda **exactamente `export.json` + `.prev`, cero `.tmp`**. |
+| `npm test` | Todas. |
 
 Por defecto usan un **fixture sintético** (`app/tests/fixtures/sample.export.json`) para que
 CI sea autónomo sin datos personales. Para probar con tu **archivo real** (4.242/3.809):
@@ -82,19 +82,38 @@ OCIO_EXPORT="../data/ocioshit.export.json" npm run test:roundtrip
 OCIO_EXPORT="../data/ocioshit.export.json" npm run test:e2e
 ```
 
+### Causa raíz del bug de escritura durable (corregido 2026-06-24)
+
+La escritura atómica promovía el temporal al definitivo con `FileSystemFileHandle.move()`
+(rename). **`move()` funciona en OPFS pero NO es fiable en el sistema de ficheros local de
+Chromium (Windows):** ambos `move()` lanzaban, los `catch` los tragaban y la carpeta quedaba
+con un `.tmp` huérfano y sin rotación `.prev`. Como OPFS y el mock sí honran `move()`, todos
+los tests automáticos pasaban mientras el disco real fallaba. **Arreglo:** la rotación `.prev`
+se hace por **copia**; el definitivo se escribe con `createWritable()` (que hace su propio
+temp `.crswap` + rename atómico interno); `move()` queda como vía rápida con **fallback a
+copia** y memo `_moveBroken`; y el `.tmp` se borra **siempre** en un `finally`. Cobertura nueva:
+`tests/fsa-real.e2e.spec.js` ejercita la API **real** (handles OPFS) en ambos caminos.
+
 ### Verificación manual (camino real de disco, no automatizable)
 
-El selector de carpeta de File System Access no se puede automatizar, así que el camino
-real de disco se comprueba a mano (en Chromium):
+El selector de carpeta no se automatiza; confírmalo a mano en **Chromium** (abre DevTools →
+Console para ver el método usado):
 
-1. `npm run preview` y abre la URL.
-2. **Elegir carpeta durable…** → elige una carpeta real (no sincronizada).
-3. **Cargar export.json…** → tu `data/ocioshit.export.json`. Verás `ocioshit.export.json`
-   aparecer en la carpeta y los conteos 4.242/3.809.
-4. **Simular pérdida de OPFS → reconstruir** → la BD se reconstruye desde el fichero durable.
-5. (Más fuerte) Cierra y reabre la pestaña, o borra OPFS desde DevTools → al recargar,
-   reconstruye solo.
-6. El indicador “Último backup durable: hace X” refleja el estado real.
+1. `npm run preview` y abre la URL (o el sitio desplegado).
+2. **Elegir carpeta durable…** → una carpeta real **vacía y no sincronizada**. Concede permiso.
+3. **Cargar export.json…** → tu `data/ocioshit.export.json`. Verás 4.242/3.809 y, en la
+   carpeta, **solo** `ocioshit.export.json`. El log dirá el método: *“temp+rename atómico”* o
+   *“escritura atómica directa (copia)”* — si dice **copia**, tu FS tiene el `move()` no fiable
+   (la causa raíz) y la app usó el fallback robusto.
+4. **Backup ahora** → en la carpeta: **`ocioshit.export.json` + `ocioshit.export.prev.json`**,
+   **cero `.tmp`**.
+5. **Backup ahora** otra vez → siguen siendo exactamente esos dos ficheros, cero `.tmp`.
+6. **Simular pérdida de OPFS → reconstruir** → reconstruye desde el `.json` del disco a
+   4.242/3.809, `integrity_check: ok`. (Más fuerte: cierra y reabre la pestaña → Reautorizar →
+   reconstruye al recargar.)
+7. **Estado final esperado en la carpeta: exactamente `ocioshit.export.json` +
+   `ocioshit.export.prev.json`, cero `.tmp`.** El indicador “Último backup durable: hace X”
+   refleja el estado real.
 
 ---
 

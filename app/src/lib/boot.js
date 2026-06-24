@@ -12,6 +12,7 @@ import { get } from 'svelte/store';
 import { createDbClient } from './db/client.js';
 import { detectCapabilities } from './durable/capabilities.js';
 import { loadPersistedStore, chooseDurableTarget, forgetDurableTarget } from './durable/store.js';
+import { FsaDurableStore } from './durable/fsa-store.js';
 import { phase, caps, dbStatus, durability, busy, logEvent } from './stores.js';
 
 let db = null; // worker client
@@ -238,11 +239,12 @@ export async function backupNow() {
   busy.set('Escribiendo copia durable…');
   try {
     const json = await db.exportJson();
-    const { at } = await durableStore.writeExportAtomic(json);
+    const { at, method } = await durableStore.writeExportAtomic(json);
     dirty = false;
     durability.update((d) => ({ ...d, lastBackupAt: at }));
     const mb = (json.length / 1e6).toFixed(2);
-    logEvent('ok', `Backup durable escrito (${mb} MB) en ${durableStore.describe()}.`);
+    const how = method === 'rename' ? 'temp+rename atómico' : 'escritura atómica directa (copia)';
+    logEvent('ok', `Backup durable escrito (${mb} MB · ${how}) en ${durableStore.describe()}.`);
   } catch (err) {
     logEvent('error', `Fallo al escribir backup durable: ${err.message}`);
   } finally {
@@ -291,9 +293,60 @@ function installLifecycle() {
   });
 }
 
-// Test hooks exposed for Playwright (and handy in DevTools).
+// Test hooks for Playwright. Gated behind an explicit test context (?test=1 or ?durable=idb)
+// so the destructive helpers (wipeOpfsHard, simulateOpfsLoss) are NOT exposed in normal use.
 export function __installTestHooks() {
   if (typeof window === 'undefined') return;
+  let testMode = false;
+  try {
+    const p = new URLSearchParams(window.location.search);
+    testMode = p.get('test') === '1' || p.get('durable') === 'idb';
+  } catch {
+    /* ignore */
+  }
+  if (!testMode) return;
+
+  // Harness that runs the REAL FsaDurableStore against a real OPFS directory handle (OPFS
+  // handles are genuine FileSystemDirectoryHandle, with the same createWritable/move/remove
+  // as a user-picked folder). This is the automated regression for the orphan-.tmp bug.
+  window.__ocioFsa = {
+    async run({ writes = 4, forceCopy = false } = {}) {
+      const root = await navigator.storage.getDirectory();
+      try {
+        await root.removeEntry('fsa-test', { recursive: true });
+      } catch {
+        /* none */
+      }
+      const dir = await root.getDirectoryHandle('fsa-test', { create: true });
+      const store = new FsaDurableStore(dir, { forceCopy });
+      const list = async () => {
+        const a = [];
+        // eslint-disable-next-line no-restricted-syntax
+        for await (const [n] of dir.entries()) a.push(n);
+        return a.sort();
+      };
+      const steps = [];
+      for (let i = 1; i <= writes; i++) {
+        const r = await store.writeExportAtomic(JSON.stringify({ v: i }));
+        steps.push({ i, method: r.method, files: await list() });
+      }
+      const readFile = async (n) => {
+        try {
+          return await (await (await dir.getFileHandle(n)).getFile()).text();
+        } catch {
+          return null;
+        }
+      };
+      return {
+        steps,
+        finalFiles: await list(),
+        target: await readFile('ocioshit.export.json'),
+        prev: await readFile('ocioshit.export.prev.json'),
+        viaReadExport: await store.readExport()
+      };
+    }
+  };
+
   window.__ocio = {
     status: () => db.status(),
     exportJson: () => db.exportJson(),

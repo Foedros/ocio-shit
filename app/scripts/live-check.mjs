@@ -1,7 +1,8 @@
 // One-off: load the DEPLOYED site and confirm the engine boots on the real origin.
 import { chromium } from '@playwright/test';
 
-const URL = process.env.LIVE_URL || 'https://foedros.github.io/ocio-shit/';
+// ?test=1 installs the test hooks (window.__ocio), now gated out of normal prod use.
+const URL = (process.env.LIVE_URL || 'https://foedros.github.io/ocio-shit/') + '?test=1';
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 480, height: 1000 } });
 const errors = [];
