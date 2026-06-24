@@ -63,6 +63,11 @@ export function require_(keys) {
 export async function makePgClient() {
   require_(['dbUrl']);
   const { default: pg } = await import('pg');
+  // DATE (oid 1082): devolver el string 'YYYY-MM-DD' tal cual. node-postgres lo parsea por
+  // defecto a un Date a medianoche LOCAL → al serializar a JSON (ISO/UTC) se desplaza un día en
+  // husos UTC+. Esto corrompía las fechas en los exports/backups por script (no en la app, que
+  // lee por PostgREST y ya recibe strings). timestamptz (1184) se deja como Date (instante real).
+  pg.types.setTypeParser(1082, (v) => v);
   const m = CONFIG.dbUrl.match(/^postgres(?:ql)?:\/\/([^:]+):([^@]*)@([^:/]+):(\d+)\/([^?]+)/);
   const cfg = m
     ? { user: m[1], password: m[2], host: m[3], port: Number(m[4]), database: m[5] }
