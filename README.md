@@ -98,21 +98,16 @@ real de disco se comprueba a mano (en Chromium):
 
 ---
 
-## Despliegue a GitHub Pages (tú haces el push)
+## Despliegue — ✅ EN PRODUCCIÓN
 
-Todo está preparado (`.github/workflows/deploy.yml`). Pasos:
+- **App en vivo:** **https://foedros.github.io/ocio-shit/**
+- **Repo (público, solo el shell):** https://github.com/Foedros/ocio-shit
+- **CI** (`.github/workflows/deploy.yml`): en cada push a `main`,
+  `test` (round-trip + atómico + E2E OPFS-loss→reconstruir) → `build` (con
+  `BASE_PATH=/ocio-shit`) → `deploy` a Pages. **Pages ya habilitado** (Source: GitHub Actions).
 
-```bash
-# desde la raíz del proyecto (repo git ya inicializado aquí, aislado de tu home)
-gh repo create ocio-shit --private --source=. --remote=origin --push
-#   (o --public si quieres; el repo NO contiene datos personales)
-```
+**Primer uso** (en Chromium): la app te pedirá **elegir tu carpeta durable** y **cargar tu
+`export.json`** (desde tu disco — no se publica). A partir de ahí, durabilidad automática.
 
-Luego en GitHub: **Settings → Pages → Source: GitHub Actions**. El workflow:
-`test` (round-trip + atómico + E2E) → `build` (con `BASE_PATH=/<repo>`) → `deploy`.
-
-La app quedará en `https://<tu-usuario>.github.io/<repo>/`. La primera vez te pedirá
-**elegir tu carpeta durable** y **cargar tu `export.json`**.
-
-> El push es una acción tuya: publica el código a un origen externo. Tus datos personales
-> no van en el repo (ver `.gitignore`).
+**Redeploy:** `git push` a `main`. El shell se publica; tus datos personales nunca
+(ver `.gitignore`: `data/`, `*.xlsx`, `docs/`, `CLAUDE.md` quedan locales).

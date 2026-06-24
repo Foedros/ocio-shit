@@ -31,3 +31,4 @@ vite.config.ts.timestamp-*
 /src/lib/db/schema-sql.js
 /static/sqlite/
 /durability-dashboard.png
+/live-deploy.png
