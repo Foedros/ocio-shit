@@ -411,19 +411,22 @@ export async function refreshColecciones() {
 async function ensureColeccionesSeeded() {
   if (currentRole !== 'leader' || !db) return;
   try {
-    // Backfill the derived `decada` field (idempotent) so decade collections aren't empty.
+    // Backfill derived fields (idempotent): `decada` (so decade collections aren't empty) and
+    // `num_reconsumo` (so a bulk import's un-sequenced re-consumptions flag es_reconsumo correctly).
     const der = await db.deriveDecadas();
     if (der.updated > 0) logEvent('info', `Década derivada (campo calculado) en ${der.updated} obras.`);
+    const rec = await db.deriveReconsumos();
+    if (rec.updated > 0) logEvent('info', `num_reconsumo re-secuenciado (campo calculado) en ${rec.updated} entradas.`);
 
     const list = await db.listColecciones();
-    let changed = der.updated > 0;
+    let changed = der.updated > 0 || rec.updated > 0;
     if (list.length === 0) {
       logEvent('info', 'Sembrando Tanda 1 de colecciones…');
       const res = await db.seedTanda1();
       logEvent('ok', `Tanda 1 materializada: ${res.created} colecciones, ${res.materialized} membresías.`);
       changed = true;
-    } else if (der.updated > 0) {
-      await db.rematerializeColecciones(); // decadas changed -> refresh memberships
+    } else if (der.updated > 0 || rec.updated > 0) {
+      await db.rematerializeColecciones(); // decada/reconsumo changed -> refresh memberships
     }
     if (changed) {
       markDirty();

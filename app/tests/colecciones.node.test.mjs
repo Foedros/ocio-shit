@@ -6,6 +6,7 @@ import { createNodeAdapter } from './lib/adapter-node.mjs';
 import { applySchema, importAll, integrityCheck, foreignKeyViolations } from '../src/lib/db/io.js';
 import {
   deriveDecadas,
+  deriveReconsumos,
   seedTanda1,
   listColecciones,
   getColeccion,
@@ -72,6 +73,34 @@ rematerializeAll(A);
 const expCine90 = A.get("SELECT COUNT(*) n FROM obra WHERE categoria='pelicula' AND decada=1990").n;
 const cine90 = byName(listColecciones(A), 'Cine de los 90');
 check('tras derivar, Cine de los 90 = nº real de pelis de los 90', cine90.n_obras === expCine90, `(${cine90.n_obras} == ${expCine90})`);
+
+// --- deriveReconsumos: a bulk import that adds a 2ª consumption WITHOUT sequencing num_reconsumo
+//     leaves es_reconsumo at 0; the derivation re-ranks it by date (§3.1) so Revisitadas includes it.
+//     It also DEMOTES orphan flags (a 1-entrada obra can't be a reconsumo) — both directions. ---
+const obraSolo = A.get(
+  `SELECT e.obra_id FROM entrada e WHERE e.fecha IS NOT NULL AND e.num_reconsumo = 0
+     AND (SELECT COUNT(*) FROM entrada e2 WHERE e2.obra_id = e.obra_id) = 1 LIMIT 1`
+)?.obra_id;
+check('hay una obra de 1 sola entrada con fecha (para la prueba)', !!obraSolo);
+if (obraSolo) {
+  const revIdAll = byName(listColecciones(A), 'Revisitadas').id;
+  const isMember = (oid) => A.get('SELECT COUNT(*) n FROM obra_coleccion WHERE coleccion_id = ? AND obra_id = ?', [revIdAll, oid]).n > 0;
+  check('la obra NO está en Revisitadas antes (1 sola entrada)', !isMember(obraSolo));
+  const newId = 'test-reconsumo-' + obraSolo.slice(0, 8);
+  A.run(
+    `INSERT INTO entrada (id, obra_id, fecha, estado, num_reconsumo, metadata)
+     VALUES (?, ?, '2099-01-01', 'terminado', 0, ?)`,
+    [newId, obraSolo, JSON.stringify({ origen: 'sheets', fecha_tipo: 'fecha_visionado' })]
+  );
+  check('2º consumo importado sin secuenciar: es_reconsumo=0', A.get('SELECT es_reconsumo es FROM entrada WHERE id = ?', [newId]).es === 0);
+  const recRes = deriveReconsumos(A);
+  const recRow = A.get('SELECT num_reconsumo n, es_reconsumo es FROM entrada WHERE id = ?', [newId]);
+  check('deriveReconsumos re-secuencia el 2º consumo (num_reconsumo=1, es_reconsumo=1)', recRes.updated >= 1 && recRow.n === 1 && recRow.es === 1, `(updated ${recRes.updated})`);
+  check('el 1er consumo (más antiguo) sigue en 0', A.get('SELECT num_reconsumo n FROM entrada WHERE obra_id = ? AND id <> ?', [obraSolo, newId]).n === 0);
+  check('deriveReconsumos idempotente (2ª pasada 0)', deriveReconsumos(A).updated === 0);
+  rematerializeAll(A);
+  check('tras re-secuenciar, esa obra YA está en Revisitadas', isMember(obraSolo));
+}
 
 // --- manual: etiqueta comfort + re-materializar la colección Comfort ---
 const comfortTag = createEtiquetaManual(A, { nombre: 'comfort', taxonomia: 'meta' });

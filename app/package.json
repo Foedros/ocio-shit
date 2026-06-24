@@ -16,7 +16,10 @@
 		"test:roundtrip": "node tests/roundtrip.node.test.mjs",
 		"test:fsa": "node tests/fsa-store.node.test.mjs",
 		"test:queries": "node tests/queries.node.test.mjs",
-		"test:unit": "npm run test:roundtrip && npm run test:fsa && npm run test:queries",
+		"test:compiler": "node tests/compiler.node.test.mjs",
+		"test:colecciones": "node tests/colecciones.node.test.mjs",
+		"test:audit": "node tests/audit-derivados.mjs",
+		"test:unit": "npm run test:roundtrip && npm run test:fsa && npm run test:queries && npm run test:compiler && npm run test:colecciones",
 		"test:e2e": "playwright test",
 		"pretest:e2e": "npm run prepare-assets",
 		"test": "npm run test:unit && npm run test:e2e"

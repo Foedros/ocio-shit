@@ -50,6 +50,7 @@ export function createDbClient() {
     filterOptions: () => call('filterOptions'),
     // colecciones (Sprint 3)
     deriveDecadas: () => call('deriveDecadas'),
+    deriveReconsumos: () => call('deriveReconsumos'),
     seedTanda1: (year) => call('seedTanda1', { year }),
     rematerializeColecciones: () => call('rematerializeColecciones'),
     listColecciones: () => call('listColecciones'),

@@ -30,6 +30,7 @@ import {
 } from './queries.js';
 import {
   deriveDecadas,
+  deriveReconsumos,
   listColecciones,
   getColeccion,
   createColeccion,
@@ -254,6 +255,7 @@ const HANDLERS = {
   filterOptions: () => filterOptions(adapter),
   // colecciones (Sprint 3)
   deriveDecadas: () => deriveDecadas(adapter),
+  deriveReconsumos: () => deriveReconsumos(adapter),
   seedTanda1: ({ year } = {}) => seedTanda1(adapter, year ? { year } : {}),
   rematerializeColecciones: () => rematerializeAll(adapter),
   listColecciones: () => listColecciones(adapter),

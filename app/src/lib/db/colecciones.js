@@ -24,6 +24,30 @@ export function deriveDecadas(adapter) {
   return { updated: before };
 }
 
+/**
+ * Re-sequence `num_reconsumo` (modelo §3.1: 0 = primera vez, 1 = primera revisión…) as the
+ * chronological rank of each Entrada within its Obra. A bulk import (FA) can create several
+ * entradas for one obra without sequencing this, leaving the GENERATED `es_reconsumo` flag at
+ * 0 for genuine re-consumptions. Deterministic + idempotent: only obras with >1 entrada can
+ * change; single-entry obras keep rank 0. Mirrors `addEntry`'s count-based numbering for live
+ * adds, applied here over the whole archive. @returns {updated}
+ */
+export function deriveReconsumos(adapter) {
+  const cte =
+    `WITH r AS (SELECT id, ROW_NUMBER() OVER ` +
+    `(PARTITION BY obra_id ORDER BY (fecha IS NULL), fecha, creado_en, id) - 1 AS rn FROM entrada)`;
+  const before = adapter.get(
+    `${cte} SELECT COUNT(*) n FROM entrada e JOIN r ON r.id = e.id WHERE e.num_reconsumo <> r.rn`
+  ).n;
+  if (before > 0) {
+    adapter.run(
+      `${cte} UPDATE entrada SET num_reconsumo = (SELECT rn FROM r WHERE r.id = entrada.id) ` +
+      `WHERE num_reconsumo <> (SELECT rn FROM r WHERE r.id = entrada.id)`
+    );
+  }
+  return { updated: before };
+}
+
 /** All collections with their materialized obra count. */
 export function listColecciones(adapter) {
   return adapter.all(
