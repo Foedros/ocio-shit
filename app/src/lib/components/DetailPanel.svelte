@@ -1,13 +1,20 @@
 <script>
   import Sheet from './Sheet.svelte';
-  import { detail } from '$lib/stores.js';
-  import { closeDetail, openObraDetail, openEntryDetail } from '$lib/boot.js';
+  import { detail, role, busy } from '$lib/stores.js';
+  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction } from '$lib/boot.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
-  import { fmtFecha, fmtValoracion } from '$lib/format.js';
+  import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
 
   const label = (map, v) => map[v] ?? v ?? '—';
   const col = (cat) => CAT_COLOR[cat] ?? { c: 'var(--ink-3)', tint: 'var(--ink-2)' };
+
+  let confirming = $state(false);
+  // Reset the delete confirmation whenever the shown item changes.
+  $effect(() => {
+    void $detail;
+    confirming = false;
+  });
 </script>
 
 <Sheet
@@ -24,13 +31,28 @@
       {#if e.valoracion != null}<span class="rating">{fmtValoracion(e.valoracion)}</span>{/if}
     </div>
     <dl>
-      <div><dt>Fecha</dt><dd>{fmtFecha(e.fecha)} <span class="sub">· {label(FECHA_TIPO_LABELS, e.fecha_tipo)}</span></dd></div>
+      <div><dt>Fecha de consumo</dt><dd>{fmtFecha(e.fecha)} <span class="sub">· {label(FECHA_TIPO_LABELS, e.fecha_tipo)}</span></dd></div>
       <div><dt>Origen</dt><dd>{label(ORIGEN_LABELS, e.origen)}</dd></div>
       <div><dt>Estado</dt><dd>{e.estado}</dd></div>
+      {#if fmtDuracion(e.duracion_min)}<div><dt>Duración</dt><dd>{fmtDuracion(e.duracion_min)}</dd></div>{/if}
       <div><dt>Reconsumo</dt><dd>{e.num_reconsumo > 0 ? `sí · #${e.num_reconsumo}` : 'no'}</dd></div>
     </dl>
     {#if e.nota}<p class="nota">{e.nota}</p>{/if}
     <button class="link" onclick={() => openObraDetail(e.obra_id)}>Ver la obra y sus entradas →</button>
+
+    {#if $role === 'leader'}
+      <div class="danger">
+        {#if !confirming}
+          <button class="del" onclick={() => (confirming = true)}>Eliminar entrada</button>
+        {:else}
+          <span class="q">¿Eliminar esta entrada de forma permanente?</span>
+          <div class="row">
+            <button class="yes" onclick={() => deleteEntryAction(e.entrada_id)} disabled={!!$busy}>Sí, eliminar</button>
+            <button class="no" onclick={() => (confirming = false)}>Cancelar</button>
+          </div>
+        {/if}
+      </div>
+    {/if}
   {:else if $detail?.kind === 'obra'}
     {@const o = $detail.data.obra}
     <div class="chip-row">
@@ -151,4 +173,53 @@
   .g {
     color: var(--gold);
   }
+  .danger {
+    margin-top: 1.4rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+  }
+  .del {
+    background: none;
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+    color: var(--danger-ink);
+    border-radius: var(--radius-pill);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font: inherit;
+  }
+  .del:hover {
+    border-color: var(--danger);
+  }
+  .q {
+    display: block;
+    color: var(--ink-2);
+    margin-bottom: 0.6rem;
+    font-size: 0.92rem;
+  }
+  .row {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .yes {
+    background: var(--danger);
+    border: 1px solid var(--danger);
+    color: #fff;
+    border-radius: var(--radius-pill);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .yes:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .no {
+    background: none;
+    border: 1px solid var(--hairline-plus);
+    color: var(--ink);
+    border-radius: var(--radius-pill);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+  }
 </style>
+

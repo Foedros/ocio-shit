@@ -25,7 +25,8 @@ import {
   archiveEntries,
   archiveFilters,
   filterOpts,
-  detail
+  detail,
+  showToast
 } from './stores.js';
 
 let db = null; // worker client (LEADER only)
@@ -342,6 +343,41 @@ export async function addEntryAction(payload) {
   }
 }
 
+/** Delete an entry (LEADER only). Removes the obra if it has no entries left. Flushes durable. */
+export async function deleteEntryAction(entradaId) {
+  if (currentRole !== 'leader' || !db) {
+    logEvent('warn', 'Solo la pestaña principal puede borrar.');
+    throw new Error('solo lectura');
+  }
+  busy.set('Eliminando…');
+  try {
+    const res = await db.deleteEntry(entradaId);
+    if (!res.deleted) {
+      logEvent('warn', 'La entrada ya no existe.');
+      return res;
+    }
+    dbStatus.update((s) => ({ ...(s || {}), counts: res.counts }));
+    markDirty();
+    try {
+      await backupNow(); // durable flush, atomic (single-flight)
+    } catch {
+      logEvent('warn', 'Entrada eliminada; el respaldo durable falló y se reintentará.');
+    }
+    coordinator.broadcastChanged(res.counts);
+    detail.set(null); // close the detail of the deleted entry
+    await refreshArchive();
+    logEvent('ok', `Entrada eliminada${res.obraDeleted ? ' (y su obra, sin más entradas)' : ''}.`);
+    showToast(res.obraDeleted ? 'Entrada y obra eliminadas' : 'Entrada eliminada');
+    return res;
+  } catch (err) {
+    logEvent('error', `No se pudo eliminar: ${err.message}`);
+    showToast('No se pudo eliminar.', 'error');
+    throw err;
+  } finally {
+    busy.set(null);
+  }
+}
+
 // ---------------------------------------------------------------------------------------
 // Durability actions (LEADER only — they touch the DB / durable store).
 // ---------------------------------------------------------------------------------------
@@ -574,7 +610,9 @@ export function __installTestHooks() {
     backupNow,
     seedFromText: (text) => seedFromText(text),
     addEntry: (payload) => addEntryAction(payload),
+    deleteEntry: (id) => deleteEntryAction(id),
     listEntries: (filters) => dataApi.listEntries(filters || {}),
+    getObra: (id) => dataApi.getObra(id),
     getDurability: () => get(durability),
     getPhase: () => get(phase),
     getRole: () => currentRole,

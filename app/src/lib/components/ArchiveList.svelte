@@ -28,9 +28,9 @@
       {#each $filterOpts.origenes as o}<option value={o}>{label(ORIGEN_LABELS, o)}</option>{/each}
     </select>
     <select aria-label="Tipo de fecha" value={$archiveFilters.fecha_tipo} onchange={(e) => setFilters({ fecha_tipo: e.currentTarget.value })}>
-      <option value="">Visionado y voto</option>
-      <option value="fecha_visionado">Solo visionado</option>
-      <option value="fecha_voto">Solo voto (aprox.)</option>
+      <option value="">Cualquier fecha</option>
+      <option value="fecha_visionado">Fecha real (visionado)</option>
+      <option value="fecha_voto">Fecha de voto (aprox.)</option>
     </select>
   </div>
 </div>

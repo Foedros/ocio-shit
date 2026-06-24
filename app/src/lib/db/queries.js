@@ -13,8 +13,11 @@ export const CATEGORIA_LABELS = {
   comic: 'Cómic',
   ocio_libre: 'Ocio libre'
 };
-export const ORIGEN_LABELS = { sheets: 'Primera mano', steam: 'Steam', filmaffinity: 'FilmAffinity' };
-export const FECHA_TIPO_LABELS = { fecha_visionado: 'Visionado', fecha_voto: 'Voto (aprox.)' };
+export const ORIGEN_LABELS = { sheets: 'Ocio Shit (original)', steam: 'Steam', filmaffinity: 'FilmAffinity' };
+export const FECHA_TIPO_LABELS = { fecha_visionado: 'Fecha real (visionado)', fecha_voto: 'Fecha de voto (aprox.)' };
+
+// A-07 (migracion.md §3.3): duración fija (canónica = por-entrada) vs variable (solo por-entrada).
+export const DURACION_FIJA = new Set(['pelicula', 'libro', 'comic']);
 
 function uuid() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -45,8 +48,13 @@ export function addEntry(adapter, { obra = {}, entrada = {} } = {}) {
   if (valoracion != null && (valoracion < 0 || valoracion > 10)) {
     throw new Error('La valoración debe estar entre 0 y 10.');
   }
-  const fecha = entrada.fecha ? String(entrada.fecha) : null;
+  const fecha = entrada.fecha ? String(entrada.fecha) : null; // CUÁNDO se vivió (Entrada)
   const nota = entrada.nota ? String(entrada.nota) : null;
+  // entrada.duracion_min = tiempo real dedicado en esta experiencia (minutos).
+  const duracionIn =
+    entrada.duracion_min != null && entrada.duracion_min !== ''
+      ? Math.max(0, Math.trunc(Number(entrada.duracion_min)))
+      : null;
 
   adapter.exec('BEGIN IMMEDIATE');
   try {
@@ -64,11 +72,21 @@ export function addEntry(adapter, { obra = {}, entrada = {} } = {}) {
       obraId = existing.id;
     } else {
       obraId = uuid();
+      // A-07: for fixed-duration works the value is canonical (= per-entry); variable works
+      // (serie/videojuego/ocio_libre) keep canonical NULL and only the entry carries time.
+      const canonica = DURACION_FIJA.has(categoria) ? duracionIn : null;
       adapter.run(
-        'INSERT INTO obra (id, titulo, categoria, anio_obra, decada) VALUES (?, ?, ?, ?, ?)',
-        [obraId, titulo, categoria, anio, anio != null ? Math.floor(anio / 10) * 10 : null]
+        'INSERT INTO obra (id, titulo, categoria, anio_obra, decada, duracion_canonica_min) VALUES (?, ?, ?, ?, ?, ?)',
+        [obraId, titulo, categoria, anio, anio != null ? Math.floor(anio / 10) * 10 : null, canonica]
       );
       obraCreated = true;
+    }
+
+    // A-07: a re-watch of a fixed-duration work with no entered time inherits the canonical.
+    let duracionEntry = duracionIn;
+    if (duracionEntry == null && DURACION_FIJA.has(categoria)) {
+      const ex = adapter.get('SELECT duracion_canonica_min AS d FROM obra WHERE id = ?', [obraId]);
+      if (ex && ex.d != null) duracionEntry = ex.d;
     }
 
     // num_reconsumo = how many entradas the obra already has (0 = first time).
@@ -77,13 +95,13 @@ export function addEntry(adapter, { obra = {}, entrada = {} } = {}) {
     const metadata = JSON.stringify({ origen: 'sheets', fecha_tipo: 'fecha_visionado' });
     adapter.run(
       `INSERT INTO entrada
-         (id, obra_id, fecha, estado, nota, valoracion, clase_tiempo, num_reconsumo, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, 'electivo', ?, ?)`,
-      [entradaId, obraId, fecha, estado, nota, valoracion, numReconsumo, metadata]
+         (id, obra_id, fecha, estado, nota, valoracion, duracion_min, clase_tiempo, num_reconsumo, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'electivo', ?, ?)`,
+      [entradaId, obraId, fecha, estado, nota, valoracion, duracionEntry, numReconsumo, metadata]
     );
 
     adapter.exec('COMMIT');
-    return { obraId, entradaId, obraCreated, numReconsumo };
+    return { obraId, entradaId, obraCreated, numReconsumo, duracionEntry };
   } catch (err) {
     try {
       adapter.exec('ROLLBACK');
@@ -96,10 +114,43 @@ export function addEntry(adapter, { obra = {}, entrada = {} } = {}) {
 
 const SELECT_ENTRY =
   `SELECT e.id AS entrada_id, e.obra_id, o.titulo, o.categoria, e.fecha, e.estado,
-          e.valoracion, e.num_reconsumo,
+          e.valoracion, e.num_reconsumo, e.duracion_min,
           json_extract(e.metadata, '$.origen')     AS origen,
           json_extract(e.metadata, '$.fecha_tipo') AS fecha_tipo
    FROM entrada e JOIN obra o ON o.id = e.obra_id`;
+
+/**
+ * Delete an Entrada. If its Obra is left with no entradas, delete the Obra too (no orphans).
+ * One transaction. FK cascades clean up junction rows (obra_creador, etc.) and the entrada's
+ * own children. @returns {{deleted:boolean, obraDeleted:boolean, obraId?:string}}
+ */
+export function deleteEntry(adapter, entradaId) {
+  adapter.exec('BEGIN IMMEDIATE');
+  try {
+    const row = adapter.get('SELECT obra_id FROM entrada WHERE id = ?', [entradaId]);
+    if (!row) {
+      adapter.exec('ROLLBACK');
+      return { deleted: false, obraDeleted: false };
+    }
+    const obraId = row.obra_id;
+    adapter.run('DELETE FROM entrada WHERE id = ?', [entradaId]);
+    const remaining = adapter.get('SELECT COUNT(*) AS c FROM entrada WHERE obra_id = ?', [obraId]).c;
+    let obraDeleted = false;
+    if (remaining === 0) {
+      adapter.run('DELETE FROM obra WHERE id = ?', [obraId]); // ON DELETE CASCADE clears N:M rows
+      obraDeleted = true;
+    }
+    adapter.exec('COMMIT');
+    return { deleted: true, obraDeleted, obraId };
+  } catch (err) {
+    try {
+      adapter.exec('ROLLBACK');
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+}
 
 /** Filtered list of entradas (joined with their obra). Returns minimal display rows. */
 export function listEntries(adapter, { categoria, origen, fecha_tipo, search, limit = 6000 } = {}) {

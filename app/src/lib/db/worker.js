@@ -21,6 +21,7 @@ import {
 } from './io.js';
 import {
   addEntry,
+  deleteEntry,
   listEntries,
   listObras,
   getEntry,
@@ -196,6 +197,10 @@ function addEntryAndCount(payload) {
   const res = addEntry(adapter, payload);
   return { ...res, counts: counts(adapter) };
 }
+function deleteEntryAndCount(entradaId) {
+  const res = deleteEntry(adapter, entradaId);
+  return { ...res, counts: counts(adapter) };
+}
 
 // TEST ONLY: open a transaction inserting a sentinel obra WITHOUT committing, leaving the
 // transaction open. When the tab is killed, the next leader must roll this back on open.
@@ -230,6 +235,7 @@ const HANDLERS = {
   releaseForWipe: () => releaseForWipe(),
   // archive
   addEntry: (payload) => addEntryAndCount(payload),
+  deleteEntry: ({ entradaId }) => deleteEntryAndCount(entradaId),
   listEntries: ({ filters }) => listEntries(adapter, filters),
   listObras: ({ filters }) => listObras(adapter, filters),
   getEntry: ({ entradaId }) => getEntry(adapter, entradaId),

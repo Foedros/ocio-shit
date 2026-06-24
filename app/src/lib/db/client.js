@@ -42,6 +42,7 @@ export function createDbClient() {
     releaseForWipe: () => call('releaseForWipe'),
     // archive (Sprint 2)
     addEntry: (payload) => call('addEntry', payload),
+    deleteEntry: (entradaId) => call('deleteEntry', { entradaId }),
     listEntries: (filters) => call('listEntries', { filters }),
     listObras: (filters) => call('listObras', { filters }),
     getEntry: (entradaId) => call('getEntry', { entradaId }),

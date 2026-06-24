@@ -13,9 +13,11 @@
   let titulo = $state('');
   let categoria = $state('pelicula');
   let valoracion = $state('');
-  let fecha = $state(todayISO());
+  let fecha = $state(todayISO()); // CUÁNDO lo viví (Entrada) — por defecto hoy
   let nota = $state('');
-  let anio = $state('');
+  let anio = $state(''); // AÑO DE ESTRENO de la obra (Obra) — NUNCA autorrellenado
+  let durH = $state('');
+  let durMin = $state('');
   let more = $state(false);
   let tituloInput = $state(null);
 
@@ -30,9 +32,16 @@
     e?.preventDefault();
     if (!titulo.trim() || !canWrite || $busy) return;
     try {
+      const durMinTotal =
+        durH !== '' || durMin !== '' ? (Number(durH) || 0) * 60 + (Number(durMin) || 0) : null;
       const res = await addEntryAction({
-        obra: { titulo: titulo.trim(), categoria, anio_obra: anio || null },
-        entrada: { fecha: fecha || null, nota: nota || null, valoracion: valoracion === '' ? null : valoracion }
+        obra: { titulo: titulo.trim(), categoria, anio_obra: anio === '' ? null : anio },
+        entrada: {
+          fecha: fecha || null, // CUÁNDO se vivió → Entrada
+          nota: nota || null,
+          valoracion: valoracion === '' ? null : valoracion,
+          duracion_min: durMinTotal // tiempo dedicado → Entrada (A-07 en queries.js)
+        }
       });
       showToast(`Entrada guardada${res.obraCreated ? '' : ' · reconsumo ' + res.numReconsumo}`);
       onsaved?.();
@@ -75,9 +84,28 @@
 
   {#if more}
     <section class="extra">
-      <label>Fecha <input type="date" bind:value={fecha} disabled={!canWrite} /></label>
-      <label>Año <input type="number" bind:value={anio} min="1850" max="2100" placeholder="—" disabled={!canWrite} /></label>
-      <label class="wide">Nota personal <input bind:value={nota} placeholder="micro-reseña…" disabled={!canWrite} /></label>
+      <label class="fld">
+        <span class="lbl">Fecha de consumo</span>
+        <input type="date" bind:value={fecha} disabled={!canWrite} />
+        <span class="hint">cuándo lo viste / leíste / jugaste</span>
+      </label>
+      <label class="fld">
+        <span class="lbl">Año de la obra</span>
+        <input type="number" bind:value={anio} min="1850" max="2100" placeholder="ej. 2019" disabled={!canWrite} />
+        <span class="hint">año de estreno / publicación · NO el de consumo</span>
+      </label>
+      <div class="fld">
+        <span class="lbl">Duración</span>
+        <div class="dur">
+          <input type="number" bind:value={durH} min="0" placeholder="0" disabled={!canWrite} aria-label="horas" /><span class="u">h</span>
+          <input type="number" bind:value={durMin} min="0" max="59" placeholder="0" disabled={!canWrite} aria-label="minutos" /><span class="u">min</span>
+        </div>
+        <span class="hint">tiempo dedicado en esta experiencia</span>
+      </div>
+      <label class="fld wide">
+        <span class="lbl">Nota personal</span>
+        <input bind:value={nota} placeholder="micro-reseña…" disabled={!canWrite} />
+      </label>
     </section>
   {/if}
 
@@ -131,20 +159,28 @@
   .extra {
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 0.7rem;
+    gap: 0.9rem;
   }
-  .extra label {
-    display: inline-flex;
+  .fld {
+    display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    flex: 1 1 9rem;
+  }
+  .fld.wide {
+    flex: 1 1 100%;
+  }
+  .fld .lbl {
     font-family: var(--font-data);
-    font-size: 0.68rem;
-    letter-spacing: 0.06em;
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--label);
   }
-  .extra .wide {
-    flex: 1 1 12rem;
+  .fld .hint {
+    font-size: 0.72rem;
+    color: var(--ink-3);
+    line-height: 1.3;
   }
   .extra input {
     background: var(--surface-2);
@@ -154,12 +190,25 @@
     padding: 0.5rem 0.6rem;
     font-family: var(--font-text);
     font-size: 0.95rem;
-    text-transform: none;
-    letter-spacing: normal;
+    width: 100%;
   }
   .extra input:focus {
     outline: none;
     border-color: var(--accent);
+  }
+  .dur {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .dur input {
+    width: 3.4rem;
+    text-align: center;
+  }
+  .dur .u {
+    font-family: var(--font-data);
+    font-size: 0.75rem;
+    color: var(--ink-3);
   }
   .actions {
     display: flex;

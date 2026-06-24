@@ -59,7 +59,18 @@ test('altas keep durability intact: durable folder stays export.json + .prev, ze
   const list = await page.evaluate(() => window.__ocio.listEntries({ search: 'Alta De Prueba' }));
   expect(list.length).toBe(3);
 
-  // THE INVARIANT: after N writes the durable folder is exactly export.json + .prev, zero .tmp.
+  // DELETE one alta: real deletion, its obra (no entries left) goes too, durable flush fires.
+  const del = await page.evaluate((id) => window.__ocio.deleteEntry(id), list[0].entrada_id);
+  expect(del.deleted).toBe(true);
+  expect(del.obraDeleted, 'an alta with no remaining entries removes its obra').toBe(true);
+  const afterDel = await page.evaluate(() => window.__ocio.status());
+  expect(afterDel.counts.entrada).toBe(after.counts.entrada - 1);
+  expect(afterDel.counts.obra).toBe(after.counts.obra - 1);
+  expect(afterDel.integrity.detail, 'integrity ok after delete').toBe('ok');
+  expect(await page.evaluate((id) => window.__ocio.getObra(id), del.obraId), 'the obra is gone').toBeNull();
+
+  // THE INVARIANT: after N writes AND a delete, the durable folder is exactly export.json +
+  // .prev, zero .tmp.
   files = await page.evaluate(() => window.__ocio.listDurableFolder());
   expect(files).toEqual(['ocioshit.export.json', 'ocioshit.export.prev.json']);
   expect(files).not.toContain('ocioshit.export.json.tmp');

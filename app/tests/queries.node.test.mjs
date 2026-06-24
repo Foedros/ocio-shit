@@ -8,6 +8,7 @@ import { createNodeAdapter } from './lib/adapter-node.mjs';
 import { applySchema, importAll, integrityCheck, foreignKeyViolations, counts } from '../src/lib/db/io.js';
 import {
   addEntry,
+  deleteEntry,
   listEntries,
   listObras,
   getEntry,
@@ -110,6 +111,46 @@ check('valoración 0 se guarda como 0 (no null)', getEntry(A, r0.entradaId).valo
 const allCount = listEntries(A).length;
 const pctCount = listEntries(A, { search: '%' }).length;
 check('búsqueda "%" se escapa (no devuelve todo)', pctCount < allCount, `(${pctCount} de ${allCount})`);
+
+// --- fecha (Entrada) vs año de obra (Obra) SEPARADOS + A-07 duración FIJA (película) ---
+const f1 = addEntry(A, {
+  obra: { titulo: 'Ape Out Peli ZZZ', categoria: 'pelicula', anio_obra: 2019 },
+  entrada: { fecha: '2026-06-24', duracion_min: 128 }
+});
+const fo = getObra(A, f1.obraId).obra;
+check('separación: obra.anio_obra=2019 (estreno), decada=2010', fo.anio_obra === 2019 && fo.decada === 2010);
+check('separación: entrada.fecha=2026-06-24 (consumo), no toca el año', getEntry(A, f1.entradaId).fecha === '2026-06-24');
+check('A-07 fija: obra.duracion_canonica_min=128', fo.duracion_canonica_min === 128);
+check('A-07 fija: entrada.duracion_min=128', getEntry(A, f1.entradaId).duracion_min === 128);
+const f2 = addEntry(A, {
+  obra: { titulo: 'ape out peli zzz', categoria: 'pelicula', anio_obra: 2019 },
+  entrada: { fecha: '2026-07-01' }
+});
+check('A-07 fija: re-consumo sin duración hereda la canónica (128)', getEntry(A, f2.entradaId).duracion_min === 128);
+
+// --- A-07 duración VARIABLE (videojuego): solo por-entrada, canónica NULL ---
+const v1 = addEntry(A, {
+  obra: { titulo: 'Ape Out Juego ZZZ', categoria: 'videojuego', anio_obra: 2019 },
+  entrada: { fecha: '2026-06-24', duracion_min: 300 }
+});
+const vo = getObra(A, v1.obraId).obra;
+check('A-07 variable: obra.duracion_canonica_min=NULL', vo.duracion_canonica_min == null);
+check('A-07 variable: entrada.duracion_min=300', getEntry(A, v1.entradaId).duracion_min === 300);
+
+// --- BORRAR: entrada de una obra con varias entradas -> la obra se queda ---
+const d1 = deleteEntry(A, f2.entradaId);
+check('borrar (obra con +1 entrada): borrada=true, obra NO borrada', d1.deleted && d1.obraDeleted === false);
+check('borrar: la entrada ya no está', getEntry(A, f2.entradaId) === null);
+check('borrar: la obra sigue (le queda 1)', getObra(A, f1.obraId) !== null);
+
+// --- BORRAR la última entrada de una obra -> la obra desaparece (sin huérfanas) ---
+const delBefore = counts(A);
+const d2 = deleteEntry(A, f1.entradaId);
+check('borrar última entrada: obra borrada también', d2.deleted && d2.obraDeleted === true);
+check('borrar última: la obra ya no existe', getObra(A, f1.obraId) === null);
+const delAfter = counts(A);
+check('borrar última: -1 obra y -1 entrada', delAfter.obra === delBefore.obra - 1 && delAfter.entrada === delBefore.entrada - 1, `(${delBefore.obra}/${delBefore.entrada} -> ${delAfter.obra}/${delAfter.entrada})`);
+check('borrar: integridad ok, 0 FK', integrityCheck(A).ok && foreignKeyViolations(A) === 0);
 
 A.close();
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}\n`);

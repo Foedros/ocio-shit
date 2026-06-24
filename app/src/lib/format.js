@@ -10,6 +10,15 @@ export function fmtFecha(iso) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso);
 }
 
+export function fmtDuracion(min) {
+  if (min == null || min === '') return null;
+  const m = Math.trunc(Number(min));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h} h ${r} min` : `${h} h`;
+}
+
 export function todayISO() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');

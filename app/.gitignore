@@ -36,3 +36,5 @@ vite.config.ts.timestamp-*
 /d1-diario.png
 /d2-registro.png
 /d3-detalle.png
+/c1-form.png
+/c2-delete.png
