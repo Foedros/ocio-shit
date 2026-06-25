@@ -131,9 +131,10 @@ create table etiqueta (
   id         text primary key,
   nombre     text not null unique,
   taxonomia  text check (taxonomia in ('genero','tema','tono','tecnica','meta')),
-  -- 'steam' = etiqueta de género derivada de dato ESTRUCTURADO de Steam (campo genres),
-  -- no generada por IA. Aditivo (2026-06-25, enriquecimiento de metadatos de videojuegos).
-  origen     text not null default 'manual' check (origen in ('manual','ia','steam')),
+  -- 'steam'/'tmdb' = etiqueta de género de dato ESTRUCTURADO de la fuente (campo genres),
+  -- no generada por IA. Aditivo (2026-06-25, enriquecimiento de metadatos videojuegos/cine).
+  -- Taxonomía de géneros unificada en español (TMDB); los géneros de Steam se traducen a ella.
+  origen     text not null default 'manual' check (origen in ('manual','ia','steam','tmdb')),
   color      text,
   owner_id   uuid not null default auth.uid()
 );
