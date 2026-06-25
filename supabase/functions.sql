@@ -246,6 +246,69 @@ begin
 end;
 $$;
 
+-- ── ESTADÍSTICAS (pantalla 06): agregados server-side en UNA llamada ────────────────────────
+-- Calcula TODO lo de la pantalla de Estadísticas en el servidor (rápido, un round-trip) sobre los
+-- 4.079 entradas / 4.241 obras. Reusa la MISMA entropía de Shannon normalizada verificada en el
+-- re-diagnóstico (D = 100·H/ln k, n = obras distintas por categoría de la dimensión). Índice =
+-- 3 dimensiones reales (década·género·creador); país/idioma FUERA por decisión D-MET-03. Solo
+-- lectura. SECURITY INVOKER + STABLE → la RLS aplica y el Advisor NO la marca (no es DEFINER).
+create or replace function ocio_stats()
+  returns jsonb language plpgsql security invoker stable set search_path = public
+as $$
+declare v_dec numeric; v_gen numeric; v_cre numeric;
+begin
+  with d as (select count(*)::numeric n from obra where decada is not null group by decada),
+       t as (select sum(n) nn, count(*)::numeric k from d)
+  select case when t.k>1 then 100*(-sum((d.n/t.nn)*ln(d.n/t.nn)))/ln(t.k) else 0 end
+    into v_dec from d cross join t group by t.k, t.nn;
+  with d as (select count(distinct oe.obra_id)::numeric n from obra_etiqueta oe
+               join etiqueta et on et.id=oe.etiqueta_id where et.taxonomia='genero' group by oe.etiqueta_id),
+       t as (select sum(n) nn, count(*)::numeric k from d)
+  select case when t.k>1 then 100*(-sum((d.n/t.nn)*ln(d.n/t.nn)))/ln(t.k) else 0 end
+    into v_gen from d cross join t group by t.k, t.nn;
+  with d as (select count(distinct obra_id)::numeric n from obra_creador group by persona_id),
+       t as (select sum(n) nn, count(*)::numeric k from d)
+  select case when t.k>1 then 100*(-sum((d.n/t.nn)*ln(d.n/t.nn)))/ln(t.k) else 0 end
+    into v_cre from d cross join t group by t.k, t.nn;
+
+  return jsonb_build_object(
+    'corpus', jsonb_build_object(
+      'obras',     (select count(*) from obra),
+      'entradas',  (select count(*) from entrada),
+      'horas',     (select round(coalesce(sum(duracion_min),0)/60.0, 1) from entrada),
+      'creadores', (select count(distinct persona_id) from obra_creador),
+      'con_genero',(select count(distinct oe.obra_id) from obra_etiqueta oe join etiqueta et on et.id=oe.etiqueta_id where et.taxonomia='genero')),
+    'diversidad', jsonb_build_object(
+      'indice',    round((coalesce(v_dec,0)+coalesce(v_gen,0)+coalesce(v_cre,0))/3, 2),
+      'd_decada',  round(coalesce(v_dec,0), 2),
+      'd_genero',  round(coalesce(v_gen,0), 2),
+      'd_creador', round(coalesce(v_cre,0), 2)),
+    'tiempo', (select coalesce(jsonb_agg(jsonb_build_object('categoria',categoria,'obras',obras,'horas',horas,'entradas',entradas) order by horas desc),'[]'::jsonb)
+      from (select o.categoria, count(distinct o.id)::int obras,
+                   round(coalesce(sum(e.duracion_min),0)/60.0,1) horas, count(e.id)::int entradas
+            from obra o left join entrada e on e.obra_id=o.id group by o.categoria) tc),
+    'generos', (select coalesce(jsonb_agg(jsonb_build_object('nombre',nombre,'n',n,'origen',origen) order by n desc),'[]'::jsonb)
+      from (select et.nombre, et.origen, count(distinct oe.obra_id)::int n
+            from obra_etiqueta oe join etiqueta et on et.id=oe.etiqueta_id where et.taxonomia='genero'
+            group by et.nombre, et.origen) g),
+    'decadas', (select coalesce(jsonb_agg(jsonb_build_object('decada',decada,'n',n,'cine',cine,'vj',vj) order by decada),'[]'::jsonb)
+      from (select decada, count(*)::int n, count(*) filter (where categoria in ('pelicula','serie'))::int cine,
+                   count(*) filter (where categoria='videojuego')::int vj
+            from obra where decada is not null group by decada) dd),
+    'creadores_top', (select coalesce(jsonb_agg(jsonb_build_object('nombre',nombre,'n',n) order by n desc),'[]'::jsonb)
+      from (select p.nombre, count(distinct oc.obra_id)::int n from obra_creador oc join persona p on p.id=oc.persona_id
+            group by p.nombre order by count(distinct oc.obra_id) desc, p.nombre limit 15) ct),
+    'valoraciones', jsonb_build_object(
+      'media',     (select round(avg(valoracion)::numeric,2) from entrada where valoracion is not null),
+      'puntuadas', (select count(*) from entrada where valoracion is not null),
+      'total',     (select count(*) from entrada),
+      'sin_nota',  (select count(*) from entrada where valoracion is null),
+      'sin_nota_vj',(select count(*) from entrada e join obra o on o.id=e.obra_id where e.valoracion is null and o.categoria='videojuego'),
+      'histograma',(select coalesce(jsonb_agg(jsonb_build_object('bucket',bucket,'n',n) order by bucket),'[]'::jsonb)
+        from (select floor(valoracion)::int bucket, count(*)::int n from entrada where valoracion is not null group by 1) vh)));
+end;
+$$;
+
 -- ── Permisos: solo el usuario autenticado; nunca anon/public ────────────────────────────────
 revoke all on function ocio_add_entry(jsonb)        from public, anon;
 revoke all on function ocio_delete_entry(text)      from public, anon;
@@ -255,6 +318,7 @@ revoke all on function ocio_filter_options()        from public, anon;
 revoke all on function ocio_create_collection(jsonb) from public, anon;
 revoke all on function ocio_materialize_collection(text, text, jsonb) from public, anon;
 revoke all on function ocio_apply_r1()              from public, anon;
+revoke all on function ocio_stats()                 from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
 grant  execute on function ocio_delete_entry(text)  to authenticated;
 grant  execute on function ocio_update_entry(text, double precision, text, date, integer) to authenticated;
@@ -263,3 +327,4 @@ grant  execute on function ocio_filter_options()    to authenticated;
 grant  execute on function ocio_create_collection(jsonb) to authenticated;
 grant  execute on function ocio_materialize_collection(text, text, jsonb) to authenticated;
 grant  execute on function ocio_apply_r1()          to authenticated;
+grant  execute on function ocio_stats()             to authenticated;

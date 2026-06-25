@@ -117,6 +117,14 @@ export async function status() {
   return { vfs: 'supabase', initialized: true, integrity: { ok: true }, counts: c, foreignKeyViolations: 0 };
 }
 
+// Estadísticas (pantalla 06): TODOS los agregados server-side en una sola RPC (SECURITY INVOKER,
+// la misma entropía verificada del re-diagnóstico). Solo lectura. La pantalla la consume tal cual.
+export async function stats() {
+  const { data, error } = await supabase.rpc('ocio_stats');
+  fail(error, 'stats');
+  return data;
+}
+
 export async function listColecciones() {
   const { data, error } = await supabase
     .from('coleccion')
