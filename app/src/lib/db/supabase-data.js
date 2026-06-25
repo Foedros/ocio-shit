@@ -7,7 +7,8 @@
 // INVOKER RPCs in supabase/functions.sql (atomic dedup/num_reconsumo/A-07/cascade).
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase-config.js';
-import { compileCollectionRule } from '../predicates/compiler.js';
+import { compileCollectionRule, compileCondition, compileMeasure, progressRatio } from '../predicates/compiler.js';
+import { ALL_RPG, MOTIVO } from '../predicates/logros-catalog.js';
 import { toPg } from './pg-dialect.js';
 import { EXPORT_ORDER, TABLE_MANIFEST } from './io.js';
 
@@ -136,6 +137,92 @@ export async function timelineYear(year) {
   const { data, error } = await supabase.rpc('ocio_timeline_year', { p_year: year });
   fail(error, 'timelineYear');
   return data;
+}
+
+// Logros (sistema RPG): evalúa TODO el catálogo EN VIVO con el compilador CONSERVADO. Por cada
+// logro/título evaluable: compila condicion_json → booleano (desbloqueado) + medidas de progreso,
+// las traduce a Postgres (toPg, sin tocar el compilador) y manda el lote a ocio_evaluate_logros
+// (SECURITY INVOKER, solo lectura). El progreso (valor/umbral) se combina aquí. Los no-evaluables
+// se marcan honestamente con su motivo, sin inventar estado. Dinámico: se reevalúa al leer.
+// Lee el ledger de desbloqueos (logro_desbloqueado/titulo_desbloqueado) → mapa id → {registrado, fecha}.
+// fecha puede ser NULL (cumplido, momento no reconstruible). La VERDAD de "desbloqueado ahora" es la
+// evaluación en vivo; el ledger solo aporta CUÁNDO (y que ya se registró, para no re-sellar).
+async function readUnlockLedger() {
+  const [l, t] = await Promise.all([
+    supabase.from('logro_desbloqueado').select('logro_id, fecha'),
+    supabase.from('titulo_desbloqueado').select('titulo_id, fecha')
+  ]);
+  fail(l.error, 'readUnlockLedger.logro');
+  fail(t.error, 'readUnlockLedger.titulo');
+  const map = {};
+  for (const r of l.data || []) map[r.logro_id] = { registrado: true, fecha: r.fecha ?? null };
+  for (const r of t.data || []) map[r.titulo_id] = { registrado: true, fecha: r.fecha ?? null };
+  return map;
+}
+
+export async function evaluateLogros() {
+  const ledger = await readUnlockLedger();
+  const evaluables = ALL_RPG.filter((x) => x.condicion_json);
+  const built = evaluables.map((x) => {
+    const meas = compileMeasure(x.condicion_json); // {measures:[{sql,params,target,op}], combine}
+    const bool = toPg(compileCondition(x.condicion_json));
+    const measures = meas.measures.map((m) => {
+      const p = toPg({ sql: m.sql, params: m.params });
+      return { sql: p.text, params: p.values };
+    });
+    return { x, meta: meas, item: { id: x.id, bool: { sql: bool.text, params: bool.values }, measures } };
+  });
+
+  const { data, error } = await supabase.rpc('ocio_evaluate_logros', { p_items: built.map((b) => b.item) });
+  fail(error, 'evaluateLogros');
+  const byId = Object.fromEntries((data || []).map((r) => [r.id, r]));
+
+  const view = (x) => ({
+    id: x.id, nombre: x.nombre, tipo: x.tipo ?? (x.id.startsWith('TIT_') ? 'titulo' : 'logro'),
+    rareza: x.rareza, exp: x.exp ?? null, clase: x.clase ?? null,
+    descripcion: x.descripcion, umbral: x.umbral
+  });
+
+  return ALL_RPG.map((x) => {
+    const led = ledger[x.id] || { registrado: false, fecha: null };
+    if (!x.condicion_json) {
+      return { ...view(x), evaluable: false, desbloqueado: false, progreso: null,
+               bloqueado_por: x.bloqueado_por, motivo: MOTIVO[x.bloqueado_por],
+               registrado: led.registrado, fecha_desbloqueo: led.fecha };
+    }
+    const b = built.find((q) => q.x.id === x.id);
+    const r = byId[x.id];
+    const vals = r?.valores ?? [];
+    const ratios = b.meta.measures.map((m, i) => progressRatio(vals[i], m.target, m.op)).filter((n) => n != null);
+    let progreso = null;
+    if (ratios.length) progreso = b.meta.combine === 'max' ? Math.max(...ratios) : Math.min(...ratios);
+    const desbloqueado = r?.ok === 1 || r?.ok === '1' || r?.ok === true;
+    if (desbloqueado) progreso = 1;
+    return { ...view(x), evaluable: true, desbloqueado, progreso,
+             valores: vals, umbrales: b.meta.measures.map((m) => m.target),
+             registrado: led.registrado, fecha_desbloqueo: led.fecha };
+  });
+}
+
+// Registrar un desbloqueo (idempotente). Going-forward: el día real es HOY (el momento es genuino).
+export async function recordUnlock(kind, defId, fecha = null) {
+  const { data, error } = await supabase.rpc('ocio_record_unlock', { p_kind: kind, p_def_id: defId, p_fecha: fecha });
+  fail(error, 'recordUnlock');
+  return data; // { recorded, kind, id }
+}
+
+// Sella en el ledger los desbloqueos NUEVOS (desbloqueados ahora pero aún SIN registro) con la
+// fecha de HOY — el momento real cuando ocurren durante el uso. Los ya registrados (incl. el
+// baseline histórico, con fecha reconstruida o NULL) se respetan (la RPC es idempotente). Lo llama
+// la pantalla tras una evaluación; devuelve cuántos selló.
+export async function syncUnlocks(evaluated, hoy = new Date().toISOString().slice(0, 10)) {
+  const nuevos = (evaluated || []).filter((e) => e.desbloqueado && !e.registrado);
+  let recorded = 0;
+  for (const e of nuevos) {
+    const res = await recordUnlock(e.tipo === 'titulo' ? 'titulo' : 'logro', e.id, hoy);
+    if (res?.recorded) recorded++;
+  }
+  return { recorded, nuevos: nuevos.length };
 }
 
 export async function listColecciones() {

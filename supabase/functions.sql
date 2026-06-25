@@ -350,7 +350,100 @@ as $$
   where e.fecha >= make_date(p_year,1,1) and e.fecha < make_date(p_year+1,1,1);
 $$;
 
+-- ── LOGROS (sistema RPG): evaluación EN VIVO con el COMPILADOR conservado ────────────────────
+-- Mismo patrón que ocio_materialize_collection: el COMPILADOR corre en el navegador (compileCondition
+-- → booleano, compileMeasure → escalar de progreso), su SQL llega aquí y se ejecuta server-side. NO
+-- hay segunda forma de evaluar. Defensas idénticas: SECURITY INVOKER (RLS aplica, no DEFINER → el
+-- Advisor no lo marca), una sola sentencia, sin DML, forma EXACTA esperada, y los $n se sustituyen
+-- como literales SEGUROS (números/bool tal cual, texto con quote_literal). SOLO LECTURA.
+create or replace function ocio_eval_sql(p_sql text, p_params jsonb, p_kind text)
+  returns numeric language plpgsql security invoker stable set search_path = public
+as $$
+declare v_sql text := p_sql; v_i int; v_el jsonb; v_lit text; v_res numeric;
+begin
+  -- forma permitida por tipo: lo ÚNICO que el evaluador ejecuta (lo que emite el compilador).
+  if p_kind = 'bool' then
+    if v_sql !~ '^\s*SELECT \(CASE WHEN .* THEN 1 ELSE 0 END\) AS ok\s*$' then raise exception 'forma bool no permitida'; end if;
+  elsif p_kind = 'scalar' then
+    if v_sql !~ '^\s*SELECT .* AS v\s*$' then raise exception 'forma scalar no permitida'; end if;
+  else
+    raise exception 'kind no permitido: %', p_kind;
+  end if;
+  if position(';' in v_sql) > 0 then raise exception 'multi-statement no permitido'; end if;
+  if v_sql ~* '\m(insert|update|delete|drop|alter|truncate|grant|revoke|create|copy|merge|call|do)\M' then
+    raise exception 'palabra no permitida en la consulta';
+  end if;
+  if jsonb_typeof(p_params) = 'array' then       -- sustituir $1..$n (reverso: $10 antes que $1)
+    for v_i in reverse jsonb_array_length(p_params) - 1 .. 0 loop
+      v_el := p_params -> v_i;
+      if v_el is null or jsonb_typeof(v_el) = 'null' then v_lit := 'NULL';
+      elsif jsonb_typeof(v_el) in ('number','boolean') then v_lit := (v_el #>> '{}');
+      else v_lit := quote_literal(v_el #>> '{}'); end if;
+      v_sql := replace(v_sql, '$' || (v_i + 1)::text, v_lit);
+    end loop;
+  end if;
+  execute v_sql into v_res;       -- read-only: la whitelist de forma + sin-DML lo garantiza
+  return v_res;
+end;
+$$;
+
+-- Evalúa un LOTE de logros/títulos en una llamada (dinámico, un round-trip). Por ítem: el booleano
+-- (desbloqueado 0/1) + las medidas de progreso (valores escalares). El cliente combina valor/umbral.
+create or replace function ocio_evaluate_logros(p_items jsonb)
+  returns jsonb language plpgsql security invoker stable set search_path = public
+as $$
+declare v_out jsonb := '[]'::jsonb; it jsonb; m jsonb; v_ok numeric; v_vals jsonb; v_v numeric;
+begin
+  if jsonb_typeof(p_items) <> 'array' then raise exception 'p_items debe ser un array'; end if;
+  for it in select value from jsonb_array_elements(p_items) loop
+    v_ok := ocio_eval_sql(it->'bool'->>'sql', it->'bool'->'params', 'bool');
+    v_vals := '[]'::jsonb;
+    if jsonb_typeof(it->'measures') = 'array' then
+      for m in select value from jsonb_array_elements(it->'measures') loop
+        v_v := ocio_eval_sql(m->>'sql', m->'params', 'scalar');
+        v_vals := v_vals || to_jsonb(v_v);
+      end loop;
+    end if;
+    v_out := v_out || jsonb_build_object('id', it->>'id', 'ok', coalesce(v_ok, 0)::int, 'valores', v_vals);
+  end loop;
+  return v_out;
+end;
+$$;
+
+-- Registrar el DESBLOQUEO de un logro/título (going-forward). Idempotente (uno por definición):
+-- si ya hay registro no hace nada. p_fecha = el día real del desbloqueo (HOY cuando ocurre durante
+-- el uso; el momento es genuino), o NULL si no se conoce. El BASELINE histórico (los ya cumplidos
+-- al construir el sistema) lo siembra el script admin con las fechas RECONSTRUIBLES; esto cubre los
+-- nuevos. SECURITY INVOKER (RLS, no DEFINER), authenticated-only.
+create or replace function ocio_record_unlock(p_kind text, p_def_id text, p_fecha date default null)
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare v_new boolean := false;
+begin
+  if p_kind = 'logro' then
+    if not exists (select 1 from logro_desbloqueado where logro_id = p_def_id) then
+      insert into logro_desbloqueado (id, logro_id, fecha) values (gen_random_uuid()::text, p_def_id, p_fecha);
+      v_new := true;
+    end if;
+  elsif p_kind = 'titulo' then
+    if not exists (select 1 from titulo_desbloqueado where titulo_id = p_def_id) then
+      insert into titulo_desbloqueado (id, titulo_id, fecha) values (gen_random_uuid()::text, p_def_id, p_fecha);
+      v_new := true;
+    end if;
+  else
+    raise exception 'kind no permitido: %', p_kind;
+  end if;
+  return jsonb_build_object('recorded', v_new, 'kind', p_kind, 'id', p_def_id);
+end;
+$$;
+
 -- ── Permisos: solo el usuario autenticado; nunca anon/public ────────────────────────────────
+revoke all on function ocio_record_unlock(text, text, date) from public, anon;
+grant  execute on function ocio_record_unlock(text, text, date) to authenticated;
+revoke all on function ocio_eval_sql(text, jsonb, text)  from public, anon;
+revoke all on function ocio_evaluate_logros(jsonb)       from public, anon;
+grant  execute on function ocio_eval_sql(text, jsonb, text) to authenticated;
+grant  execute on function ocio_evaluate_logros(jsonb)      to authenticated;
 revoke all on function ocio_add_entry(jsonb)        from public, anon;
 revoke all on function ocio_delete_entry(text)      from public, anon;
 revoke all on function ocio_update_entry(text, double precision, text, date, integer) from public, anon;

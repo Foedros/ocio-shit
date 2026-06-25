@@ -163,10 +163,13 @@ create table logro (
 );
 
 -- ── logro_desbloqueado ──────────────────────────────────────────────────────
+-- fecha NULLABLE (2026-06-26): registra que un logro está desbloqueado + CUÁNDO, o NULL si el
+-- momento no es reconstruible sin inventar (índice de entropía / ratio no monótonos; dimensiones
+-- retro-enriquecidas). Decisión "datar solo lo reconstruible" (sistema de logros, §11.13).
 create table logro_desbloqueado (
   id                 text primary key,
   logro_id           text not null references logro(id) on delete cascade,
-  fecha              date not null,
+  fecha              date,
   entrada_origen_id  text references entrada(id) on delete set null,
   owner_id           uuid not null default auth.uid()
 );
@@ -193,10 +196,12 @@ create table titulo (
 );
 
 -- ── titulo_desbloqueado ─────────────────────────────────────────────────────
+-- fecha NULLABLE (2026-06-26): igual que logro_desbloqueado (§11.13). NULL = desbloqueado sin
+-- fecha reconstruible.
 create table titulo_desbloqueado (
   id        text primary key,
   titulo_id text not null references titulo(id) on delete cascade,
-  fecha     date not null,
+  fecha     date,
   owner_id  uuid not null default auth.uid()
 );
 

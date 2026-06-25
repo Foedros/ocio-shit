@@ -17,6 +17,24 @@ function plain(sql) {
 const horas = (whereClause) =>
   `(SELECT COALESCE(SUM(duracion_min), 0) / 60.0 FROM entrada${whereClause ? ' WHERE ' + whereClause : ''})`;
 
+// Shannon-entropy diversity of ONE dimension, as a self-contained scalar subexpression
+// (portable SQLite/node:sqlite ↔ PostgreSQL; both have ln()). Exactly the formula verified in
+// the re-diagnóstico (estadisticas.md §4.2): D = 100·H/ln(k), H = −Σ pᵢ·ln(pᵢ), pᵢ = nᵢ/N,
+// k = nº de valores distintos. `grouped` is a SELECT that yields one row per distinct value with
+// its obra count `n`. 0 ó 1 grupo → 0. COALESCE porque un set vacío (país/idioma) da NULL.
+const ent = (grouped) =>
+  `COALESCE((SELECT CASE WHEN COUNT(*) > 1 THEN 100.0*(-SUM((d.n/tt.nn)*ln(d.n/tt.nn)))/ln(COUNT(*)*1.0) ELSE 0 END` +
+  ` FROM (${grouped}) d CROSS JOIN (SELECT SUM(n) nn FROM (${grouped}) z) tt GROUP BY tt.nn), 0)`;
+// Per-dimension grouped sets (modelo §6 / estadisticas.md §4.1). creador SIEMPRE sobre obra_creador
+// (Persona), nunca el texto libre obra.creador. género = etiquetas taxonomia='genero'.
+const G_DECADA = `SELECT COUNT(*)*1.0 n FROM obra WHERE decada IS NOT NULL GROUP BY decada`;
+const G_GENERO =
+  `SELECT COUNT(DISTINCT oe.obra_id)*1.0 n FROM obra_etiqueta oe JOIN etiqueta et ON et.id = oe.etiqueta_id` +
+  ` WHERE et.taxonomia='genero' GROUP BY oe.etiqueta_id`;
+const G_CREADOR = `SELECT COUNT(DISTINCT obra_id)*1.0 n FROM obra_creador GROUP BY persona_id`;
+const G_PAIS = `SELECT COUNT(*)*1.0 n FROM obra WHERE pais_origen IS NOT NULL GROUP BY pais_origen`;
+const G_IDIOMA = `SELECT COUNT(*)*1.0 n FROM obra WHERE idioma_original IS NOT NULL GROUP BY idioma_original`;
+
 export const METRICS = {
   // --- tiempo ---
   MET_HORAS_TOTALES: plain(horas()),
@@ -44,13 +62,30 @@ export const METRICS = {
     "(SELECT CASE WHEN m > 0 THEN 1.0 * c / m ELSE 0 END FROM (SELECT COUNT(*) c, COUNT(DISTINCT strftime('%Y-%m', fecha)) m FROM entrada WHERE fecha IS NOT NULL))"
   ),
 
-  // --- diversidad (cuentas; el Índice por entropía es V1-S5) ---
+  // --- diversidad (cuentas) ---
   MET_PAISES_DISTINTOS: plain('(SELECT COUNT(DISTINCT pais_origen) FROM obra WHERE pais_origen IS NOT NULL)'),
   MET_IDIOMAS_DISTINTOS: plain('(SELECT COUNT(DISTINCT idioma_original) FROM obra WHERE idioma_original IS NOT NULL)'),
   MET_DECADAS_DISTINTAS: plain('(SELECT COUNT(DISTINCT decada) FROM obra WHERE decada IS NOT NULL)'),
   MET_CREADORES_DISTINTOS: plain('(SELECT COUNT(DISTINCT persona_id) FROM obra_creador)'),
   MET_GENEROS_DISTINTOS: plain(
     "(SELECT COUNT(DISTINCT oe.etiqueta_id) FROM obra_etiqueta oe JOIN etiqueta et ON et.id = oe.etiqueta_id WHERE et.taxonomia='genero')"
+  ),
+
+  // --- diversidad (Índice de Shannon, estadisticas.md §4) ---
+  // Sub-dimensiones por entropía normalizada. País/idioma quedan VACÍAS en el corpus (D-MET-02):
+  // el escalar devuelve 0 honesto (no se inventan datos), no lanza error.
+  MET_DIV_DECADA: plain(ent(G_DECADA)),
+  MET_DIV_GENERO: plain(ent(G_GENERO)),
+  MET_DIV_CREADOR: plain(ent(G_CREADOR)),
+  MET_DIV_PAIS: plain(ent(G_PAIS)),
+  MET_DIV_IDIOMA: plain(ent(G_IDIOMA)),
+  // Índice = media de 3 dimensiones REALES (década·género·creador), NO de 5 (D-MET-03 en
+  // CLAUDE.md §11.10 anula el /5 de estadisticas.md §4.3: país/idioma están deliberadamente
+  // fuera, no son dimensiones que falten). = la MISMA fórmula y valor (82,92) que ocio_stats().
+  MET_INDICE_DIVERSIDAD: plain(`((${ent(G_DECADA)} + ${ent(G_GENERO)} + ${ent(G_CREADOR)}) / 3.0)`),
+  // % internacional = obras en idioma ≠ base. idioma_original vacío en el corpus (D-MET-02) → 0.
+  MET_PCT_INTERNACIONAL: plain(
+    "(SELECT CASE WHEN COUNT(*) > 0 THEN 100.0 * SUM(CASE WHEN idioma_original IS NOT NULL AND idioma_original <> 'es' THEN 1 ELSE 0 END) / COUNT(*) ELSE 0 END FROM obra)"
   ),
 
   // --- group-by con parámetro (M6): {metrica, param:{categoria}, op, valor} ---
@@ -82,14 +117,10 @@ function requireCategoria(param) {
   return cat;
 }
 
-// Metrics that depend on the V1-S5 recalibration (entropy diversity, streaks, selectors).
+// Metrics still deferred: streaks (rachas) need consecutive-day logic and the selector
+// superlatives return (entidad,valor) pairs — both are the V1-S5 work, out of scope here.
+// (The entropy Índice de Diversidad + sub-dimensiones YA están implementadas arriba.)
 const DEFERRED = new Set([
-  'MET_INDICE_DIVERSIDAD',
-  'MET_DIV_PAIS',
-  'MET_DIV_IDIOMA',
-  'MET_DIV_DECADA',
-  'MET_DIV_GENERO',
-  'MET_DIV_CREADOR',
   'MET_RACHA_ACTUAL',
   'MET_RACHA_MAXIMA',
   'MET_TOP_DECADA',

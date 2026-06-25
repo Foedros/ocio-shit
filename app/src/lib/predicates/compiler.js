@@ -172,17 +172,17 @@ function compileLeaf(f, ctx, params, opts) {
   throw new Error(`Espacio de campo desconocido: ${campo}`);
 }
 
-function compileCountWhere(f, params, opts) {
-  const comparar = f.comparar || {};
+// The count subquery a count_where compares (the "current value"). Reused by both the boolean
+// (compileCountWhere) and the progress probe (compileMeasure) — one source of truth.
+function countWhereScalar(f, params, opts) {
   const dondeGroup = { match: 'all', filtros: f.donde || [] };
-  let countSql;
   if (f.sobre === 'entrada') {
-    const where = compileGroup(dondeGroup, { entrada: 'cwe' }, params, opts);
-    countSql = `(SELECT COUNT(*) FROM entrada cwe WHERE ${where})`;
-  } else if (f.sobre === 'obra') {
-    const where = compileGroup(dondeGroup, { obra: 'cwo' }, params, opts);
-    countSql = `(SELECT COUNT(*) FROM obra cwo WHERE ${where})`;
-  } else if (f.sobre === 'mes') {
+    return `(SELECT COUNT(*) FROM entrada cwe WHERE ${compileGroup(dondeGroup, { entrada: 'cwe' }, params, opts)})`;
+  }
+  if (f.sobre === 'obra') {
+    return `(SELECT COUNT(*) FROM obra cwo WHERE ${compileGroup(dondeGroup, { obra: 'cwo' }, params, opts)})`;
+  }
+  if (f.sobre === 'mes') {
     // donde compares the per-month aggregate agg.num_entradas_mes (the month's entry count).
     // HAVING references the aggregate COUNT(*) directly (SQL-standard) rather than the SELECT
     // alias `n`: SQLite tolerates the alias, PostgreSQL does not — COUNT(*) is valid in BOTH.
@@ -192,19 +192,29 @@ function compileCountWhere(f, params, opts) {
         return cmpSql('COUNT(*)', d.op, d.valor, params, opts);
       })
       .join(' AND ') || '1';
-    countSql = `(SELECT COUNT(*) FROM (SELECT strftime('%Y-%m', fecha) m, COUNT(*) n FROM entrada WHERE fecha IS NOT NULL GROUP BY m HAVING ${having}))`;
-  } else {
-    throw new Error(`count_where 'sobre' no soportado: ${f.sobre}`);
+    return `(SELECT COUNT(*) FROM (SELECT strftime('%Y-%m', fecha) m, COUNT(*) n FROM entrada WHERE fecha IS NOT NULL GROUP BY m HAVING ${having}))`;
   }
-  return cmpSql(countSql, comparar.op, comparar.valor, params, opts);
+  throw new Error(`count_where 'sobre' no soportado: ${f.sobre}`);
 }
 
-function compileExiste(f, params, opts) {
+function compileCountWhere(f, params, opts) {
+  const comparar = f.comparar || {};
+  return cmpSql(countWhereScalar(f, params, opts), comparar.op, comparar.valor, params, opts);
+}
+
+// The "current value" an `existe` measures: the max obras any single persona accumulates.
+function existeScalar(f, params, opts) {
   if (f.sobre !== 'obra_creador') throw new Error(`existe 'sobre' no soportado: ${f.sobre}`);
   const groupBy = f.agrupar_por || 'persona_id';
   if (groupBy !== 'persona_id') throw new Error(`existe agrupar_por no soportado: ${groupBy}`);
+  return `(SELECT COALESCE(MAX(c), 0) FROM (SELECT COUNT(DISTINCT obra_id) c FROM obra_creador GROUP BY persona_id) z)`;
+}
+
+function compileExiste(f, params, opts) {
   const c = f.comparar || {};
   const having = cmpSql('COUNT(DISTINCT obra_id)', c.op, c.valor, params, opts);
+  if (f.sobre !== 'obra_creador') throw new Error(`existe 'sobre' no soportado: ${f.sobre}`);
+  if ((f.agrupar_por || 'persona_id') !== 'persona_id') throw new Error(`existe agrupar_por no soportado`);
   return `EXISTS (SELECT 1 FROM obra_creador GROUP BY persona_id HAVING ${having})`;
 }
 
@@ -250,6 +260,49 @@ export function compileCondition(cond, opts = {}) {
   const params = [];
   const bool = compileGroup(cond, {}, params, o); // global scope (no obra row)
   return { sql: `SELECT (CASE WHEN ${bool} THEN 1 ELSE 0 END) AS ok`, params };
+}
+
+/**
+ * Compile the measurable scalar(s) of a condicion_json, for PROGRESS toward an (often aspirational)
+ * umbral — e.g. reconsumos 1/25. NOT a second way to decide unlocking (that stays the boolean above):
+ * it reuses the SAME metric/count/existe SQL the boolean embeds, just exposes the bare value so the
+ * caller can render "valor / umbral". Returns one probe per measurable leaf at the top level (nested
+ * groups and non-numeric leaves are skipped). Each probe is `SELECT <scalar> AS v`. `combine` tells
+ * the caller how to fold a compound: 'min' (match:all → weakest clause) or 'max' (match:any).
+ */
+export function compileMeasure(cond, opts = {}) {
+  const o = { idiomaBase: 'es', ...opts };
+  const measures = [];
+  for (const f of cond.filtros || []) {
+    if (!f || Array.isArray(f.filtros)) continue; // skip nested groups
+    const params = [];
+    if (typeof f.campo === 'string' && f.campo.startsWith('metrica:')) {
+      const m = metricScalar(f.campo.slice('metrica:'.length), f.param);
+      measures.push({ sql: `SELECT ${m.sql} AS v`, params: m.params, target: f.valor, op: f.op });
+    } else if (f.op === 'count_where') {
+      const scalar = countWhereScalar(f, params, o);
+      const c = f.comparar || {};
+      measures.push({ sql: `SELECT ${scalar} AS v`, params, target: c.valor, op: c.op });
+    } else if (f.op === 'existe') {
+      const scalar = existeScalar(f, params, o);
+      const c = f.comparar || {};
+      measures.push({ sql: `SELECT ${scalar} AS v`, params, target: c.valor, op: c.op });
+    }
+    // non-numeric leaves (obra.*/entrada.*/etiqueta in global scope) carry no progress value
+  }
+  return { measures, combine: cond.match === 'any' ? 'max' : 'min' };
+}
+
+/** Fold a measure value vs its umbral into a 0..1 ratio (progress). NULL → 0. For "menor que"
+ *  umbrales (p. ej. MET_PCT_HABITO < 30) acercarse = bajar, así que el ratio se invierte. */
+export function progressRatio(value, target, op) {
+  if (value == null || target == null) return value != null && target == null ? 1 : 0;
+  const v = Number(value);
+  const t = Number(target);
+  if (op === '>=' || op === '>') return t <= 0 ? 1 : Math.max(0, Math.min(1, v / t));
+  if (op === '<=' || op === '<') return v <= t ? 1 : v <= 0 ? 0 : Math.max(0, Math.min(1, t / v));
+  if (op === '=') return v === t ? 1 : 0;
+  return null;
 }
 
 function requireObra(ctx) {
