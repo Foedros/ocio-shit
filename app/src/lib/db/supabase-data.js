@@ -126,6 +126,14 @@ export async function stats() {
   return data;
 }
 
+// Hall of Fame (03) + Hall of Shame (09): el panteón y su reverso en UNA RPC (Fame=top, Shame=bottom
+// por nota_obra). Solo lectura, server-side. La pantalla la consume tal cual; se mueve al puntuar.
+export async function hall() {
+  const { data, error } = await supabase.rpc('ocio_hall');
+  fail(error, 'hall');
+  return data;
+}
+
 // Timeline (pantalla 04): macro = volumen+mezcla por AÑO DE ENTRADA (rápido, una RPC); el detalle
 // de un año (sus entradas, para agrupar por mes + clúster de votos) se pide al seleccionarlo.
 export async function timelineMacro() {

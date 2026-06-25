@@ -309,6 +309,76 @@ begin
 end;
 $$;
 
+-- ── HALL OF FAME (03) + HALL OF SHAME (09): el panteón y su reverso, en UNA RPC ─────────────
+-- Pareja: Fame usa el top por nota, Shame el bottom. Decisiones (documentadas, mismas en ambas):
+--  1. nota_obra = round(avg(valoraciones NO nulas de la obra), 1). Una obra entra si tiene ≥1 nota.
+--  2. Banner % valoradas = entradas con valoracion / TOTAL de entradas (denominador = TODAS las
+--     categorías, no solo las 5 rankeables) → coincide con el 4.079 del diseño.
+--  3. Cumbre/Sima absolutas (sobre las 5 categorías rankeables); empate → nota más extrema y, de
+--     desempate, ENTRADA más reciente (ult desc), luego id. empate_top/empate_bot = obras a esa nota.
+--  4. Videojuego en Shame = "pending" mientras los juegos valorados no sean representativos (el
+--     cliente decide con vj.rated/vj.total); NO se inventa un fondo con pocos juegos puntuados.
+--  5. Todo cuenta EN VIVO (se mueve al puntuar). SECURITY INVOKER + STABLE, solo lectura.
+create or replace function ocio_hall()
+  returns jsonb language sql security invoker stable set search_path = public
+as $$
+with notas as (
+  select o.id, o.titulo, o.categoria, o.anio_obra,
+         round(avg(e.valoracion)::numeric, 1) as nota,
+         max(e.fecha) as ult,
+         max(extract(year from e.fecha))::int as vista,
+         (array_agg(nullif(btrim(e.nota), '') order by e.fecha desc nulls last)
+            filter (where nullif(btrim(e.nota), '') is not null))[1] as quote
+  from obra o
+  join entrada e on e.obra_id = o.id
+  where e.valoracion is not null
+    and o.categoria in ('pelicula','serie','libro','videojuego','comic')
+  group by o.id, o.titulo, o.categoria, o.anio_obra
+),
+rt as (
+  select n.*, row_number() over (partition by categoria order by nota desc, ult desc nulls last, id) rk,
+         count(*) filter (where nota >= 9) over (partition by categoria) cat9
+  from notas n
+),
+rb as (
+  select n.*, row_number() over (partition by categoria order by nota asc, ult desc nulls last, id) rk,
+         count(*) filter (where nota < 4) over (partition by categoria) catlow
+  from notas n
+)
+select jsonb_build_object(
+  'banner', jsonb_build_object(
+     'total',     (select count(*) from entrada),
+     'valoradas', (select count(*) from entrada where valoracion is not null)),
+  'vj', jsonb_build_object(
+     'total',       (select count(*) from entrada e join obra o on o.id=e.obra_id where o.categoria='videojuego'),
+     'rated',       (select count(*) from entrada e join obra o on o.id=e.obra_id where o.categoria='videojuego' and e.valoracion is not null),
+     'sin_valorar', (select count(*) from entrada e join obra o on o.id=e.obra_id where o.categoria='videojuego' and e.valoracion is null)),
+  'cumbre', (select jsonb_build_object('titulo',titulo,'categoria',categoria,'nota',nota,'anio',anio_obra,
+               'vista',vista,'inicial',upper(left(titulo,1)),'quote',quote)
+             from notas order by nota desc, ult desc nulls last, id limit 1),
+  'sima', (select jsonb_build_object('titulo',titulo,'categoria',categoria,'nota',nota,'anio',anio_obra,
+               'vista',vista,'inicial',upper(left(titulo,1)),'quote',quote)
+             from notas order by nota asc, ult desc nulls last, id limit 1),
+  'fame', jsonb_build_object(
+     'obras_de_10', (select count(*) from notas where nota >= 10),
+     'obras_9plus', (select count(*) from notas where nota >= 9),
+     'media_top',   (select round(avg(nota), 1) from notas where nota >= 9),
+     'empate_top',  (select count(*) from notas where nota = (select max(nota) from notas))),
+  'shame', jsonb_build_object(
+     'obras_bajo_3', (select count(*) from notas where nota < 3),
+     'obras_bajo_4', (select count(*) from notas where nota < 4),
+     'media_fondo',  (select round(avg(nota), 1) from notas where nota < 4),
+     'empate_bot',   (select count(*) from notas where nota = (select min(nota) from notas))),
+  'top_rows', (select coalesce(jsonb_agg(jsonb_build_object(
+        'categoria',categoria,'titulo',titulo,'nota',nota,'anio',anio_obra,'vista',vista,
+        'inicial',upper(left(titulo,1)),'quote',quote,'rk',rk,'tail',cat9) order by categoria, rk), '[]'::jsonb)
+     from rt where rk <= 3),
+  'bottom_rows', (select coalesce(jsonb_agg(jsonb_build_object(
+        'categoria',categoria,'titulo',titulo,'nota',nota,'anio',anio_obra,'vista',vista,
+        'inicial',upper(left(titulo,1)),'quote',quote,'rk',rk,'tail',catlow) order by categoria, rk), '[]'::jsonb)
+     from rb where rk <= 3));
+$$;
+
 -- ── TIMELINE (pantalla 04): macro por AÑO DE ENTRADA + detalle por año bajo demanda ─────────
 -- CRÍTICO: el eje es la FECHA DE LA ENTRADA (cuándo se vivió), NO anio_obra (año de estreno).
 -- Una peli de 1958 vista en 2010 cae en 2010. Macro = volumen+mezcla por año (rápido); el
@@ -473,6 +543,7 @@ revoke all on function ocio_create_collection(jsonb) from public, anon;
 revoke all on function ocio_materialize_collection(text, text, jsonb) from public, anon;
 revoke all on function ocio_apply_r1()              from public, anon;
 revoke all on function ocio_stats()                 from public, anon;
+revoke all on function ocio_hall()                  from public, anon;
 revoke all on function ocio_timeline_macro()        from public, anon;
 revoke all on function ocio_timeline_year(integer)  from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
@@ -484,5 +555,6 @@ grant  execute on function ocio_create_collection(jsonb) to authenticated;
 grant  execute on function ocio_materialize_collection(text, text, jsonb) to authenticated;
 grant  execute on function ocio_apply_r1()          to authenticated;
 grant  execute on function ocio_stats()             to authenticated;
+grant  execute on function ocio_hall()              to authenticated;
 grant  execute on function ocio_timeline_macro()    to authenticated;
 grant  execute on function ocio_timeline_year(integer) to authenticated;
