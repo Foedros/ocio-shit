@@ -125,6 +125,19 @@ export async function stats() {
   return data;
 }
 
+// Timeline (pantalla 04): macro = volumen+mezcla por AÑO DE ENTRADA (rápido, una RPC); el detalle
+// de un año (sus entradas, para agrupar por mes + clúster de votos) se pide al seleccionarlo.
+export async function timelineMacro() {
+  const { data, error } = await supabase.rpc('ocio_timeline_macro');
+  fail(error, 'timelineMacro');
+  return data;
+}
+export async function timelineYear(year) {
+  const { data, error } = await supabase.rpc('ocio_timeline_year', { p_year: year });
+  fail(error, 'timelineYear');
+  return data;
+}
+
 export async function listColecciones() {
   const { data, error } = await supabase
     .from('coleccion')

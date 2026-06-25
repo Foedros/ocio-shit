@@ -309,6 +309,47 @@ begin
 end;
 $$;
 
+-- ── TIMELINE (pantalla 04): macro por AÑO DE ENTRADA + detalle por año bajo demanda ─────────
+-- CRÍTICO: el eje es la FECHA DE LA ENTRADA (cuándo se vivió), NO anio_obra (año de estreno).
+-- Una peli de 1958 vista en 2010 cae en 2010. Macro = volumen+mezcla por año (rápido); el
+-- detalle de un año se pide al seleccionarlo. Solo lectura. SECURITY INVOKER + STABLE.
+create or replace function ocio_timeline_macro()
+  returns jsonb language sql security invoker stable set search_path = public
+as $$
+  select jsonb_build_object(
+    'total',     (select count(*) from entrada),
+    'sin_fecha', (select count(*) from entrada where fecha is null),
+    'rango', (select jsonb_build_object('min', extract(year from min(fecha))::int,
+                                        'max', extract(year from max(fecha))::int)
+              from entrada where fecha is not null),
+    'anios', (select coalesce(jsonb_agg(jsonb_build_object(
+        'anio', y, 'total', tot, 'cine', cine, 'serie', serie, 'vj', vj,
+        'libro', libro, 'comic', comic, 'ocio', ocio) order by y), '[]'::jsonb)
+      from (
+        select extract(year from e.fecha)::int y, count(*)::int tot,
+               count(*) filter (where o.categoria='pelicula')::int cine,
+               count(*) filter (where o.categoria='serie')::int serie,
+               count(*) filter (where o.categoria='videojuego')::int vj,
+               count(*) filter (where o.categoria='libro')::int libro,
+               count(*) filter (where o.categoria='comic')::int comic,
+               count(*) filter (where o.categoria='ocio_libre')::int ocio
+        from entrada e join obra o on o.id=e.obra_id
+        where e.fecha is not null group by 1) yy));
+$$;
+
+-- Detalle de un año: sus entradas (por fecha de entrada), con obra+categoría+anio_obra+fecha_tipo.
+-- El cliente agrupa por mes y agrupa los 'fecha_voto' (votaciones masivas de FA) en clúster.
+create or replace function ocio_timeline_year(p_year integer)
+  returns jsonb language sql security invoker stable set search_path = public
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'id', e.id, 'fecha', e.fecha, 'mes', extract(month from e.fecha)::int,
+      'valoracion', e.valoracion, 'fecha_tipo', e.metadata->>'fecha_tipo',
+      'titulo', o.titulo, 'categoria', o.categoria, 'anio_obra', o.anio_obra) order by e.fecha desc, e.id), '[]'::jsonb)
+  from entrada e join obra o on o.id=e.obra_id
+  where e.fecha >= make_date(p_year,1,1) and e.fecha < make_date(p_year+1,1,1);
+$$;
+
 -- ── Permisos: solo el usuario autenticado; nunca anon/public ────────────────────────────────
 revoke all on function ocio_add_entry(jsonb)        from public, anon;
 revoke all on function ocio_delete_entry(text)      from public, anon;
@@ -319,6 +360,8 @@ revoke all on function ocio_create_collection(jsonb) from public, anon;
 revoke all on function ocio_materialize_collection(text, text, jsonb) from public, anon;
 revoke all on function ocio_apply_r1()              from public, anon;
 revoke all on function ocio_stats()                 from public, anon;
+revoke all on function ocio_timeline_macro()        from public, anon;
+revoke all on function ocio_timeline_year(integer)  from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
 grant  execute on function ocio_delete_entry(text)  to authenticated;
 grant  execute on function ocio_update_entry(text, double precision, text, date, integer) to authenticated;
@@ -328,3 +371,5 @@ grant  execute on function ocio_create_collection(jsonb) to authenticated;
 grant  execute on function ocio_materialize_collection(text, text, jsonb) to authenticated;
 grant  execute on function ocio_apply_r1()          to authenticated;
 grant  execute on function ocio_stats()             to authenticated;
+grant  execute on function ocio_timeline_macro()    to authenticated;
+grant  execute on function ocio_timeline_year(integer) to authenticated;
