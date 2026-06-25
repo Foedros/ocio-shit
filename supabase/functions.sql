@@ -437,7 +437,27 @@ begin
 end;
 $$;
 
+-- Equipar el TÍTULO ACTIVO del perfil (pantalla Perfil). Valida que esté DESBLOQUEADO (o NULL para
+-- quitarlo). Upsert de perfil_usuario (fila única id=1). SECURITY INVOKER (RLS por owner_id, no
+-- DEFINER), authenticated-only. Único punto de escritura del Perfil.
+create or replace function ocio_set_titulo_activo(p_titulo_id text)
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+begin
+  if p_titulo_id is not null and not exists (select 1 from titulo_desbloqueado where titulo_id = p_titulo_id) then
+    raise exception 'El título no está desbloqueado: %', p_titulo_id;
+  end if;
+  update perfil_usuario set titulo_activo_id = p_titulo_id where id = 1;
+  if not found then
+    insert into perfil_usuario (id, titulo_activo_id) values (1, p_titulo_id);
+  end if;
+  return jsonb_build_object('titulo_activo_id', p_titulo_id);
+end;
+$$;
+
 -- ── Permisos: solo el usuario autenticado; nunca anon/public ────────────────────────────────
+revoke all on function ocio_set_titulo_activo(text) from public, anon;
+grant  execute on function ocio_set_titulo_activo(text) to authenticated;
 revoke all on function ocio_record_unlock(text, text, date) from public, anon;
 grant  execute on function ocio_record_unlock(text, text, date) to authenticated;
 revoke all on function ocio_eval_sql(text, jsonb, text)  from public, anon;

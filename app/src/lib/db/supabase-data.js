@@ -204,6 +204,18 @@ export async function evaluateLogros() {
   });
 }
 
+// Perfil (pantalla 08): título equipado. Lectura RLS-scoped; escritura por RPC INVOKER validada.
+export async function getProfile() {
+  const { data, error } = await supabase.from('perfil_usuario').select('titulo_activo_id').maybeSingle();
+  fail(error, 'getProfile');
+  return data || { titulo_activo_id: null };
+}
+export async function setTituloActivo(tituloId) {
+  const { data, error } = await supabase.rpc('ocio_set_titulo_activo', { p_titulo_id: tituloId ?? null });
+  fail(error, 'setTituloActivo');
+  return data; // { titulo_activo_id }
+}
+
 // Registrar un desbloqueo (idempotente). Going-forward: el día real es HOY (el momento es genuino).
 export async function recordUnlock(kind, defId, fecha = null) {
   const { data, error } = await supabase.rpc('ocio_record_unlock', { p_kind: kind, p_def_id: defId, p_fecha: fecha });
