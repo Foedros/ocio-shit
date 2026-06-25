@@ -1,7 +1,8 @@
 <script>
   import Sheet from './Sheet.svelte';
+  import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
-  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction } from '$lib/boot-supabase.js';
+  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -10,11 +11,45 @@
   const col = (cat) => CAT_COLOR[cat] ?? { c: 'var(--ink-3)', tint: 'var(--ink-2)' };
 
   let confirming = $state(false);
-  // Reset the delete confirmation whenever the shown item changes.
+  let editing = $state(false);
+  // edit buffer (precargado del valor actual al abrir el modo edición)
+  let edVal = $state('');
+  let edFecha = $state('');
+  let edDurH = $state('');
+  let edDurMin = $state('');
+  let edNota = $state('');
+
+  // Reset confirm + edit whenever the shown item changes.
   $effect(() => {
     void $detail;
     confirming = false;
+    editing = false;
   });
+
+  function startEdit(e) {
+    edVal = e.valoracion != null ? String(e.valoracion) : '';
+    edFecha = e.fecha ?? ''; // YYYY-MM-DD o '' (sin fecha)
+    edDurH = e.duracion_min != null ? String(Math.floor(e.duracion_min / 60)) : '';
+    edDurMin = e.duracion_min != null ? String(e.duracion_min % 60) : '';
+    edNota = e.nota ?? '';
+    editing = true;
+  }
+
+  async function save(e) {
+    const duracion_min =
+      edDurH !== '' || edDurMin !== '' ? (Number(edDurH) || 0) * 60 + (Number(edDurMin) || 0) : null;
+    try {
+      await updateEntryAction(e.entrada_id, {
+        valoracion: edVal === '' ? null : Number(edVal),
+        nota: edNota.trim() || null,
+        fecha: edFecha || null, // vacío → NULL (quitar la fecha)
+        duracion_min
+      });
+      editing = false; // la acción recarga el detalle con los valores nuevos
+    } catch {
+      /* el toast de error lo lanza la acción; nos quedamos en edición */
+    }
+  }
 </script>
 
 <Sheet
@@ -28,29 +63,62 @@
     <div class="chip-row">
       <span class="dot" style="background:{col(e.categoria).c}"></span>
       <span class="cat" style="color:{col(e.categoria).tint}">{label(CATEGORIA_LABELS, e.categoria)}</span>
-      {#if e.valoracion != null}<span class="rating">{fmtValoracion(e.valoracion)}</span>{/if}
+      {#if !editing && e.valoracion != null}<span class="rating">{fmtValoracion(e.valoracion)}</span>{/if}
     </div>
-    <dl>
-      <div><dt>Fecha de consumo</dt><dd>{fmtFecha(e.fecha)} <span class="sub">· {label(FECHA_TIPO_LABELS, e.fecha_tipo)}</span></dd></div>
-      <div><dt>Origen</dt><dd>{label(ORIGEN_LABELS, e.origen)}</dd></div>
-      <div><dt>Estado</dt><dd>{e.estado}</dd></div>
-      {#if fmtDuracion(e.duracion_min)}<div><dt>Duración</dt><dd>{fmtDuracion(e.duracion_min)}</dd></div>{/if}
-      <div><dt>Reconsumo</dt><dd>{e.num_reconsumo > 0 ? `sí · #${e.num_reconsumo}` : 'no'}</dd></div>
-    </dl>
-    {#if e.nota}<p class="nota">{e.nota}</p>{/if}
-    <button class="link" onclick={() => openObraDetail(e.obra_id)}>Ver la obra y sus entradas →</button>
 
-    {#if $role === 'leader'}
-      <div class="danger">
-        {#if !confirming}
-          <button class="del" onclick={() => (confirming = true)}>Eliminar entrada</button>
-        {:else}
-          <span class="q">¿Eliminar esta entrada de forma permanente?</span>
-          <div class="row">
-            <button class="yes" onclick={() => deleteEntryAction(e.entrada_id)} disabled={!!$busy}>Sí, eliminar</button>
-            <button class="no" onclick={() => (confirming = false)}>Cancelar</button>
+    {#if !editing}
+      <dl>
+        <div><dt>Fecha de consumo</dt><dd>{fmtFecha(e.fecha)} <span class="sub">· {label(FECHA_TIPO_LABELS, e.fecha_tipo)}</span></dd></div>
+        <div><dt>Origen</dt><dd>{label(ORIGEN_LABELS, e.origen)}</dd></div>
+        <div><dt>Estado</dt><dd>{e.estado}</dd></div>
+        {#if fmtDuracion(e.duracion_min)}<div><dt>Duración</dt><dd>{fmtDuracion(e.duracion_min)}</dd></div>{/if}
+        <div><dt>Reconsumo</dt><dd>{e.num_reconsumo > 0 ? `sí · #${e.num_reconsumo}` : 'no'}</dd></div>
+      </dl>
+      {#if e.nota}<p class="nota">{e.nota}</p>{/if}
+      <button class="link" onclick={() => openObraDetail(e.obra_id)}>Ver la obra y sus entradas →</button>
+
+      {#if $role === 'leader'}
+        <div class="actions-row">
+          <button class="edit" onclick={() => startEdit(e)}>Editar</button>
+        </div>
+        <div class="danger">
+          {#if !confirming}
+            <button class="del" onclick={() => (confirming = true)}>Eliminar entrada</button>
+          {:else}
+            <span class="q">¿Eliminar esta entrada de forma permanente?</span>
+            <div class="row">
+              <button class="yes" onclick={() => deleteEntryAction(e.entrada_id)} disabled={!!$busy}>Sí, eliminar</button>
+              <button class="no" onclick={() => (confirming = false)}>Cancelar</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    {:else}
+      <!-- MODO EDICIÓN: campos editables precargados (valoracion/fecha/duración/nota) -->
+      <div class="edit-form">
+        <RatingSlider bind:value={edVal} />
+        <div class="grid">
+          <label class="fld">
+            <span class="lbl">Fecha de consumo</span>
+            <input type="date" bind:value={edFecha} />
+            <span class="hint">vacío = sin fecha · el tipo ({label(FECHA_TIPO_LABELS, e.fecha_tipo)}) se mantiene</span>
+          </label>
+          <div class="fld">
+            <span class="lbl">Duración</span>
+            <div class="dur">
+              <input type="number" bind:value={edDurH} min="0" placeholder="0" aria-label="horas" /><span class="u">h</span>
+              <input type="number" bind:value={edDurMin} min="0" max="59" placeholder="0" aria-label="minutos" /><span class="u">min</span>
+            </div>
           </div>
-        {/if}
+          <label class="fld wide">
+            <span class="lbl">Nota personal</span>
+            <input bind:value={edNota} placeholder="micro-reseña…" aria-label="Nota personal" />
+          </label>
+        </div>
+        <div class="edit-actions">
+          <button class="no" onclick={() => (editing = false)}>Cancelar</button>
+          <button class="save" onclick={() => save(e)} disabled={!!$busy}>{$busy ? 'Guardando…' : 'Guardar'}</button>
+        </div>
       </div>
     {/if}
   {:else if $detail?.kind === 'obra'}
@@ -220,6 +288,100 @@
     border-radius: var(--radius-pill);
     padding: 0.5rem 1rem;
     cursor: pointer;
+  }
+  .actions-row {
+    margin-top: 1.2rem;
+  }
+  .edit {
+    background: none;
+    border: 1px solid var(--hairline-plus);
+    color: var(--ink);
+    border-radius: var(--radius-pill);
+    padding: 0.5rem 1.1rem;
+    cursor: pointer;
+    font: inherit;
+  }
+  .edit:hover {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  /* Modo edición — mismo idioma visual que QuickAddForm (.extra) */
+  .edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+  .grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.9rem;
+  }
+  .fld {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1 1 9rem;
+  }
+  .fld.wide {
+    flex: 1 1 100%;
+  }
+  .fld .lbl {
+    font-family: var(--font-data);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--label);
+  }
+  .fld .hint {
+    font-size: 0.72rem;
+    color: var(--ink-3);
+    line-height: 1.3;
+  }
+  .edit-form input {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 0.5rem 0.6rem;
+    font-family: var(--font-text);
+    font-size: 0.95rem;
+    width: 100%;
+  }
+  .edit-form input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .dur {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .dur input {
+    width: 3.4rem;
+    text-align: center;
+  }
+  .dur .u {
+    font-family: var(--font-data);
+    font-size: 0.75rem;
+    color: var(--ink-3);
+  }
+  .edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+  }
+  .save {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: var(--on-accent);
+    border-radius: var(--radius-pill);
+    padding: 0.5rem 1.2rem;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .save:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
 

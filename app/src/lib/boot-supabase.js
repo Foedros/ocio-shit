@@ -188,6 +188,35 @@ export async function deleteEntryAction(entradaId) {
   }
 }
 
+export async function updateEntryAction(entradaId, fields) {
+  busy.set('Guardando…');
+  try {
+    const res = await data.updateEntry(entradaId, fields);
+    if (!res.updated) {
+      showToast('La entrada ya no existe.', 'error');
+      return res;
+    }
+    // Regla: fecha/duracion cambian agregados/pertenencia (año, tiempo) + num_reconsumo → rematerializar.
+    // valoracion/nota NO rematerializan (puntuar es instantáneo — ideal para puntuar en lote; las
+    // colecciones por nota media se refrescan con "Recalcular" cuando el usuario quiera).
+    if (res.fecha_changed || res.duracion_changed) {
+      await data.rematerializeAll();
+      await refreshColecciones();
+    }
+    await openEntryDetail(entradaId); // recarga el detalle con los valores nuevos
+    await refreshArchive();
+    logEvent('ok', 'Entrada actualizada.');
+    showToast('Entrada actualizada');
+    return res;
+  } catch (err) {
+    logEvent('error', `No se pudo actualizar: ${err.message}`);
+    showToast('No se pudo actualizar', 'error');
+    throw err;
+  } finally {
+    busy.set(null);
+  }
+}
+
 // ── Colecciones — READ (Stage 3 step 2). Write/materialize llega al cerrar Stage 3. ──────────
 export async function refreshColecciones() {
   try {
@@ -281,6 +310,9 @@ export function __installTestHooks() {
     listEntries: (f) => data.listEntries(f || {}),
     addEntry: (p) => addEntryAction(p),
     deleteEntry: (id) => deleteEntryAction(id),
+    updateEntry: (id, f) => updateEntryAction(id, f),
+    getEntry: (id) => data.getEntry(id),
+    openDetail: (id) => openEntryDetail(id),
     listColecciones: () => data.listColecciones(),
     getColeccion: (id) => data.getColeccion(id),
     getPhase: () => get(phase),

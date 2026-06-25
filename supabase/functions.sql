@@ -102,6 +102,44 @@ begin
 end;
 $$;
 
+-- ── EDICIÓN de una Entrada existente (valoracion / nota / fecha / duracion_min) ─────────────
+-- Reemplazo total de los 4 campos editables (la UI precarga y reenvía todos; fecha NULL permitido).
+-- fecha_tipo vive en metadata y NO se toca. Tras editar, re-deriva num_reconsumo de la obra
+-- (cronológico, idempotente; es_reconsumo es columna generada → se recalcula sola). Devuelve qué
+-- cambió para que el cliente rematerialice colecciones si procede. SECURITY INVOKER (RLS), no DEFINER.
+create or replace function ocio_update_entry(
+  p_entrada_id   text,
+  p_valoracion   double precision default null,
+  p_nota         text default null,
+  p_fecha        date default null,
+  p_duracion_min integer default null
+) returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare v_obra text; v_old_fecha date; v_old_dur integer; v_old_val double precision;
+begin
+  select obra_id, fecha, duracion_min, valoracion into v_obra, v_old_fecha, v_old_dur, v_old_val
+    from entrada where id = p_entrada_id;             -- RLS: solo ve/edita lo del dueño
+  if v_obra is null then return jsonb_build_object('updated', false); end if;
+  if p_valoracion is not null and (p_valoracion < 0 or p_valoracion > 10) then
+    raise exception 'La valoración debe estar entre 0 y 10.';
+  end if;
+  update entrada set valoracion = p_valoracion, nota = p_nota, fecha = p_fecha, duracion_min = p_duracion_min
+    where id = p_entrada_id;
+  -- re-derivar num_reconsumo de la obra (0 = primera vez, 1, 2, … por fecha)
+  with r as (
+    select id, row_number() over (partition by obra_id order by (fecha is null), fecha, creado_en, id) - 1 as rn
+    from entrada where obra_id = v_obra
+  )
+  update entrada e set num_reconsumo = r.rn from r where r.id = e.id and e.num_reconsumo <> r.rn;
+  return jsonb_build_object(
+    'updated', true, 'obra_id', v_obra,
+    'fecha_changed',     (v_old_fecha is distinct from p_fecha),
+    'duracion_changed',  (v_old_dur   is distinct from p_duracion_min),
+    'valoracion_changed',(v_old_val   is distinct from p_valoracion)
+  );
+end;
+$$;
+
 -- ── Lecturas agregadas que PostgREST no hace cómodo (DISTINCT, counts) ──────────────────────
 -- SECURITY INVOKER (RLS aplica) + STABLE. Solo lectura.
 create or replace function ocio_counts()
@@ -211,6 +249,7 @@ $$;
 -- ── Permisos: solo el usuario autenticado; nunca anon/public ────────────────────────────────
 revoke all on function ocio_add_entry(jsonb)        from public, anon;
 revoke all on function ocio_delete_entry(text)      from public, anon;
+revoke all on function ocio_update_entry(text, double precision, text, date, integer) from public, anon;
 revoke all on function ocio_counts()                from public, anon;
 revoke all on function ocio_filter_options()        from public, anon;
 revoke all on function ocio_create_collection(jsonb) from public, anon;
@@ -218,6 +257,7 @@ revoke all on function ocio_materialize_collection(text, text, jsonb) from publi
 revoke all on function ocio_apply_r1()              from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
 grant  execute on function ocio_delete_entry(text)  to authenticated;
+grant  execute on function ocio_update_entry(text, double precision, text, date, integer) to authenticated;
 grant  execute on function ocio_counts()            to authenticated;
 grant  execute on function ocio_filter_options()    to authenticated;
 grant  execute on function ocio_create_collection(jsonb) to authenticated;

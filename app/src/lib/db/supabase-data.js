@@ -177,6 +177,20 @@ export async function deleteEntry(entradaId) {
   return { deleted: data.deleted, obraDeleted: data.obra_deleted, obraId: data.obra_id, counts: await counts() };
 }
 
+// Editar una entrada existente (valoracion/nota/fecha/duracion_min). Reemplazo total de los 4
+// campos editables; la RPC mantiene fecha_tipo y re-deriva num_reconsumo de la obra.
+export async function updateEntry(entradaId, { valoracion, nota, fecha, duracion_min }) {
+  const { data, error } = await supabase.rpc('ocio_update_entry', {
+    p_entrada_id: entradaId,
+    p_valoracion: valoracion ?? null,
+    p_nota: nota ?? null,
+    p_fecha: fecha ?? null,
+    p_duracion_min: duracion_min ?? null
+  });
+  fail(error, 'updateEntry');
+  return data; // { updated, obra_id, fecha_changed, duracion_changed, valoracion_changed }
+}
+
 // ── Colecciones (escritura) — el compilador CONSERVADO corre en el navegador y su SQL se ejecuta
 //    server-side vía RPC SECURITY INVOKER (RLS). materialize/crear/recalcular/R1. ──────────────
 export async function materializeColeccion(coleccionId, regla) {
