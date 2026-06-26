@@ -29,8 +29,14 @@ const RECONSTRUCT = {
   LOG_DEVORADOR_SERIES: () => one(
     `SELECT f FROM (SELECT e.obra_id, MIN(e.fecha) f FROM entrada e JOIN obra o ON o.id=e.obra_id
        WHERE o.categoria='serie' AND e.estado='terminado' AND e.fecha IS NOT NULL GROUP BY e.obra_id) z
-     ORDER BY f, obra_id OFFSET 49 LIMIT 1`)
+     ORDER BY f, obra_id OFFSET 49 LIMIT 1`),
+  // Antigüedad: "N años de archivo" = primera entrada + N años (hito monótono sobre dato original).
+  LOG_ANIVERSARIO: () => firstPlus(1),
+  TIT_VETERANO: () => firstPlus(3),
+  TIT_DECANO: () => firstPlus(5)
 };
+const firstPlus = (n) => one(
+  `SELECT (MIN(fecha) + (interval '1 year') * ${n})::date f FROM entrada WHERE fecha IS NOT NULL`);
 const nthObra = (n) => one(
   `SELECT f FROM (SELECT obra_id, MIN(fecha) f FROM entrada WHERE fecha IS NOT NULL GROUP BY obra_id) z
    ORDER BY f, obra_id OFFSET ${n - 1} LIMIT 1`);

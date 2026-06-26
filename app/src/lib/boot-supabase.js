@@ -217,6 +217,21 @@ export async function updateEntryAction(entradaId, fields) {
   }
 }
 
+// Momento canon (curación manual): marca/desmarca una entrada y recarga el detalle.
+export async function setCanonAction(entradaId, on) {
+  busy.set(on ? 'Marcando momento canon…' : 'Quitando…');
+  try {
+    await data.setCanon(entradaId, on);
+    await openEntryDetail(entradaId); // recarga es_canon
+    showToast(on ? 'Momento canon marcado' : 'Marca quitada');
+  } catch (err) {
+    logEvent('error', `No se pudo marcar el canon: ${err.message}`);
+    showToast('No se pudo marcar', 'error');
+  } finally {
+    busy.set(null);
+  }
+}
+
 // ── Colecciones — READ (Stage 3 step 2). Write/materialize llega al cerrar Stage 3. ──────────
 export async function refreshColecciones() {
   try {

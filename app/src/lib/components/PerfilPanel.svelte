@@ -6,13 +6,14 @@
   // conseguido solo). El título equipado se guarda por RPC INVOKER (ocio_set_titulo_activo).
   import { onMount } from 'svelte';
   import { auth } from '$lib/stores.js';
-  import { stats, evaluateLogros, getProfile, setTituloActivo } from '$lib/db/supabase-data.js';
+  import { stats, evaluateLogros, getProfile, setTituloActivo, progresion } from '$lib/db/supabase-data.js';
 
   let loading = $state(true);
   let error = $state(null);
   let st = $state(null);
   let logros = $state([]);
   let activoId = $state(null);
+  let prog = $state(null);
   let filtro = $state('todos'); // todos | conseguidos | progreso | titulos
   let pickerOpen = $state(false);
   let saving = $state(false);
@@ -22,10 +23,11 @@
     loading = true;
     error = null;
     try {
-      const [s, l, p] = await Promise.all([stats(), evaluateLogros(), getProfile()]);
+      const [s, l, p, pr] = await Promise.all([stats(), evaluateLogros(), getProfile(), progresion()]);
       st = s;
       logros = l;
       activoId = p?.titulo_activo_id ?? null;
+      prog = pr;
     } catch (e) {
       error = e.message;
     } finally {
@@ -36,6 +38,12 @@
   // Notación europea MANUAL (constraint dura: coma decimal, punto de millar) — no se fía del ICU.
   const grp = (s) => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   const fmt = (n) => (n == null ? '—' : grp(Math.round(Number(n))));
+  // porcentaje con coma europea: 84,9 → "84,9"; entero → "85"
+  const pc = (n) => {
+    if (n == null) return '—';
+    const v = Math.round(Number(n) * 10) / 10;
+    return Number.isInteger(v) ? String(v) : String(v).replace('.', ',');
+  };
 
   // Paleta de categoría (= tokens de diseno/)
   const G = '#F2A65A', CI = '#C75D52', VJ = '#9580B0', SE = '#C9A23F', LI = '#7E8F5B', CO = '#5B9298';
@@ -93,6 +101,36 @@
   let cor = $derived(st?.corpus);
   let indice = $derived(Math.round(st?.diversidad?.indice ?? 0));
   let equipped = $derived(activoId ? logros.find((l) => l.id === activoId) : null);
+
+  // ── Progresión RPG (todo de ocio_progresion, datos reales) ──
+  let nivel = $derived(prog?.nivel);
+  let exp = $derived(prog?.exp);
+  let nivelPct = $derived(nivel ? Math.round((nivel.progreso ?? 0) * 100) : 0);
+  let faltanExp = $derived(nivel && exp ? Math.max(0, Math.round(Number(nivel.e_siguiente) - Number(exp.total))) : 0);
+  let claseObra = $derived(prog?.clase?.por_obra ?? []);
+  let claseHoras = $derived(prog?.clase?.por_horas ?? []);
+  let claseLinObra = $derived(claseObra.slice(0, 3).map((c) => c.arquetipo).join(' · '));
+  let claseLinHoras = $derived(claseHoras.slice(0, 3).map((c) => c.arquetipo).join(' · '));
+  let antig = $derived(prog?.antiguedad);
+  let racha = $derived(prog?.racha?.maxima ?? 0);
+  let canonAuto = $derived(prog?.canon?.auto ?? []);
+  let canonManual = $derived(prog?.canon?.manual ?? 0);
+
+  const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const fechaCorta = (f) => {
+    if (!f) return '';
+    const [y, m] = String(f).split('-');
+    return `${MES[Number(m) - 1] ?? '?'} ${y}`;
+  };
+  const autoLabel = (mo) => {
+    if (mo.tipo === 'obra_redonda') return { t: `Obra nº ${grp(mo.n)}`, d: `${mo.titulo} · ${fechaCorta(mo.fecha)}` };
+    if (mo.tipo === 'dia_cumbre') return { t: 'Tu día cumbre', d: `${grp(mo.n)} registros · ${fechaCorta(mo.fecha)}` };
+    if (mo.tipo === 'primera_categoria') return { t: `Primera obra · ${CATL[mo.categoria] ?? mo.categoria}`, d: `${mo.titulo} · ${fechaCorta(mo.fecha)}` };
+    if (mo.tipo === 'primer_diez') return { t: 'Tu primer 10', d: `${mo.titulo} · ${fechaCorta(mo.fecha)}` };
+    return { t: mo.tipo, d: '' };
+  };
+  const CATL = { pelicula: 'Cine', videojuego: 'Videojuego', serie: 'Serie', libro: 'Libro', comic: 'Cómic', ocio_libre: 'Ocio libre' };
+  const CATC = { pelicula: CI, videojuego: VJ, serie: SE, libro: LI, comic: CO, ocio_libre: G };
 
   // filtros → qué se muestra
   let showUnlocked = $derived(
@@ -198,6 +236,58 @@
         <div class="s"><div class="n gold">{indice}</div><div class="l mono">DIVERSIDAD</div></div>
       </div>
     </div>
+
+    <!-- ===== PROGRESIÓN (Nivel · Clase · Antigüedad · Racha · Canon) ===== -->
+    {#if prog}
+      <div class="eyebrow section">Progresión</div>
+      <div class="prog-grid">
+        <!-- Nivel -->
+        <article class="prog-card">
+          <div class="nv-top">
+            <div><div class="micro mono">NIVEL</div><div class="nv-num">{nivel.nivel}</div></div>
+            <div class="nv-exp mono">{fmt(exp.total)}<span> EXP</span></div>
+          </div>
+          <div class="nv-bar"><div class="nv-fill" style="width:{nivelPct}%"></div></div>
+          <div class="micro mono nv-foot">{nivelPct}% · faltan {fmt(faltanExp)} EXP para el nivel {nivel.nivel + 1}</div>
+          <div class="nv-note">+100 EXP por cada entrada (peli = libro = juego) · pico extra al desbloquear un logro</div>
+        </article>
+        <!-- Clase -->
+        <article class="prog-card">
+          <div class="micro mono">TU CLASE · MULTICLASE</div>
+          <div class="clase-main">{claseLinObra}</div>
+          <div class="clase-bars">
+            {#each claseObra.slice(0, 3) as c}
+              <div class="cb"><span class="cb-n">{c.arquetipo}</span><div class="cb-track"><div class="cb-fill" style="width:{c.pct}%;background:{CATC[c.categoria]}"></div></div><span class="cb-p mono">{pc(c.pct)}%</span></div>
+            {/each}
+          </div>
+          <div class="micro mono lens">POR HORAS VIVIDAS: <span class="lens-v">{claseLinHoras}</span></div>
+        </article>
+      </div>
+
+      <div class="prog-grid two">
+        <article class="prog-card mini">
+          <span class="mini-num">{antig.anios}<span class="u"> años</span></span>
+          <span class="mini-lab">de archivo · desde {fechaCorta(antig.desde)}</span>
+        </article>
+        <article class="prog-card mini">
+          <span class="mini-num">{racha}<span class="u"> días</span></span>
+          <span class="mini-lab">racha máxima · <span class="caveat">aprox. (fechas de voto FA, no de consumo)</span></span>
+        </article>
+      </div>
+
+      <article class="prog-card momentos">
+        <div class="micro mono">MOMENTOS CANON</div>
+        <div class="canon-list">
+          {#each canonAuto as mo}
+            {@const a = autoLabel(mo)}
+            <div class="canon-item"><span class="ci-t">{a.t}</span><span class="ci-d">{a.d}</span></div>
+          {/each}
+        </div>
+        <div class="canon-foot">
+          <strong>{canonManual}</strong> marcados a mano. <span class="faint">Marca una obra como canon desde su detalle (★) cuando signifique algo más allá de la nota — los de arriba se detectan solos.</span>
+        </div>
+      </article>
+    {/if}
 
     <!-- ===== QUIÉN ERES (ADN) ===== -->
     <div class="eyebrow section">Quién eres</div>
@@ -320,6 +410,42 @@
   .stats4 .n { font-family: var(--font-display); font-size: 22px; color: var(--ink); }
   .stats4 .l { font-size: 8px; color: var(--ink-3); letter-spacing: 0.08em; margin-top: 3px; }
   @media (min-width: 520px) { .stats4 .n { font-size: 26px; } .stats4 .l { font-size: 9px; } }
+
+  /* ── Progresión ── */
+  .prog-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 640px) { .prog-grid { grid-template-columns: 1fr 1fr; } }
+  .prog-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; animation: fadeUp 0.5s both; }
+  .micro { font-size: 9px; letter-spacing: 0.1em; color: var(--ink-3); text-transform: uppercase; }
+  .nv-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+  .nv-num { font-family: var(--font-display); font-size: 40px; color: var(--gold); line-height: 0.9; margin-top: 2px; }
+  .nv-exp { font-family: var(--font-display); font-size: 18px; color: var(--ink); }
+  .nv-exp span { font-size: 11px; color: var(--ink-3); }
+  .nv-bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .nv-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--gold)); border-radius: 4px; animation: barGrow 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .nv-foot { margin-top: 6px; }
+  .nv-note { font-size: 11px; color: var(--ink-3); margin-top: 8px; line-height: 1.4; }
+  .clase-main { font-family: var(--font-display); font-size: 19px; color: var(--ink); margin: 6px 0 12px; }
+  .clase-bars { display: flex; flex-direction: column; gap: 7px; }
+  .cb { display: flex; align-items: center; gap: 9px; }
+  .cb-n { font-size: 0.82rem; color: var(--ink-2); width: 76px; flex: none; }
+  .cb-track { flex: 1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .cb-fill { height: 100%; border-radius: 4px; animation: barGrow 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .cb-p { font-size: 0.78rem; color: var(--ink-2); width: 44px; text-align: right; }
+  .lens { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .lens-v { color: var(--ink-2); }
+  .prog-card.mini { display: flex; flex-direction: column; gap: 2px; justify-content: center; }
+  .mini-num { font-family: var(--font-display); font-size: 26px; color: var(--ink); }
+  .mini-num .u { font-size: 13px; color: var(--ink-3); }
+  .mini-lab { font-size: 12px; color: var(--ink-2); line-height: 1.4; }
+  .caveat { color: var(--ink-3); font-style: italic; }
+  .prog-card.momentos { display: flex; flex-direction: column; gap: 10px; }
+  .canon-list { display: grid; grid-template-columns: 1fr; gap: 6px; }
+  @media (min-width: 560px) { .canon-list { grid-template-columns: 1fr 1fr; } }
+  .canon-item { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; background: var(--surface-2); border-radius: 9px; }
+  .ci-t { font-size: 12px; color: var(--gold); font-weight: 600; }
+  .ci-d { font-size: 12px; color: var(--ink-2); }
+  .canon-foot { font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+  .canon-foot strong { color: var(--ink); }
 
   /* ── ADN ── */
   .adn { display: grid; grid-template-columns: 1fr; gap: 10px; }

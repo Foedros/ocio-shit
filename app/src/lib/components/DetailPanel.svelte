@@ -2,7 +2,7 @@
   import Sheet from './Sheet.svelte';
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
-  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction } from '$lib/boot-supabase.js';
+  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -80,6 +80,9 @@
       {#if $role === 'leader'}
         <div class="actions-row">
           <button class="edit" onclick={() => startEdit(e)}>Editar</button>
+          <button class="canon" class:on={e.es_canon} onclick={() => setCanonAction(e.entrada_id, !e.es_canon)} disabled={!!$busy} title="Marca esta obra como un momento que significó algo más allá de la nota">
+            {e.es_canon ? '★ Momento canon' : '☆ Marcar canon'}
+          </button>
         </div>
         <div class="danger">
           {#if !confirming}
@@ -291,6 +294,31 @@
   }
   .actions-row {
     margin-top: 1.2rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .canon {
+    background: none;
+    border: 1px solid var(--hairline-plus);
+    color: var(--ink-2);
+    border-radius: var(--radius-pill);
+    padding: 0.5rem 1.1rem;
+    cursor: pointer;
+    font: inherit;
+  }
+  .canon:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  .canon.on {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: color-mix(in srgb, var(--gold) 12%, transparent);
+  }
+  .canon:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .edit {
     background: none;

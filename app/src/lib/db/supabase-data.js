@@ -85,7 +85,11 @@ export async function listEntries({ categoria, origen, fecha_tipo, search, limit
 export async function getEntry(entradaId) {
   const { data, error } = await supabase.from('entrada').select(ENTRY_SELECT).eq('id', entradaId).maybeSingle();
   fail(error, 'getEntry');
-  return data ? mapEntry(data) : null;
+  if (!data) return null;
+  const m = mapEntry(data);
+  const { data: canon } = await supabase.from('momento_canon').select('id').eq('entrada_id', entradaId).maybeSingle();
+  m.es_canon = !!canon; // marca de momento canon (curación manual)
+  return m;
 }
 
 export async function getObra(obraId) {
@@ -131,6 +135,22 @@ export async function stats() {
 export async function hall() {
   const { data, error } = await supabase.rpc('ocio_hall');
   fail(error, 'hall');
+  return data;
+}
+
+// Progresión RPG (Perfil): EXP, Nivel, Clase (doble lente obra/horas), antigüedad, racha, momentos
+// canon (auto + manual). Todo derivado de datos reales, server-side. Solo lectura.
+export async function progresion() {
+  const { data, error } = await supabase.rpc('ocio_progresion');
+  fail(error, 'progresion');
+  return data;
+}
+// Marca/desmarca una entrada como momento canon (curación manual). RPC INVOKER de escritura.
+export async function setCanon(entradaId, on, { titulo, porQue } = {}) {
+  const { data, error } = await supabase.rpc('ocio_set_canon', {
+    p_entrada_id: entradaId, p_on: on, p_titulo: titulo ?? null, p_por_que: porQue ?? null
+  });
+  fail(error, 'setCanon');
   return data;
 }
 

@@ -35,6 +35,30 @@ const G_CREADOR = `SELECT COUNT(DISTINCT obra_id)*1.0 n FROM obra_creador GROUP 
 const G_PAIS = `SELECT COUNT(*)*1.0 n FROM obra WHERE pais_origen IS NOT NULL GROUP BY pais_origen`;
 const G_IDIOMA = `SELECT COUNT(*)*1.0 n FROM obra WHERE idioma_original IS NOT NULL GROUP BY idioma_original`;
 
+// ── Progresión RPG (logros-rpg.md §2–4): EXP, Nivel, Racha, Antigüedad — escalares portables ──
+// EXP = 100 por ENTRADA (cantidad pura, sin importar categoría/horas/nota) + el `exp` del catálogo
+// de cada LOGRO desbloqueado (el "pico"). Constantes documentadas: EXP_ENTRADA=100; pico = logro.exp.
+const EXP_SQL =
+  '(100 * (SELECT COUNT(*) FROM entrada) + ' +
+  'COALESCE((SELECT SUM(l.exp) FROM logro l JOIN logro_desbloqueado ld ON ld.logro_id = l.id), 0))';
+// Nivel: curva creciente sin techo, req(L)=round(50·L^1.5) (CALIBRADA → nivel ~53 con 4.080
+// entradas; ver CLAUDE.md). nivel = mayor L con E(L)=Σ_{i<L} req(i) ≤ EXP. Recursive CTE (portable).
+const NIVEL_SQL =
+  '(WITH RECURSIVE lv(l, e) AS (SELECT 1, 0.0 UNION ALL ' +
+  'SELECT l + 1, e + round(50 * power(l, 1.5)) FROM lv WHERE l < 300) ' +
+  `SELECT COALESCE(MAX(l), 1) FROM lv WHERE e <= ${EXP_SQL})`;
+// Racha máxima = días consecutivos con ≥1 entrada (gaps-and-islands sobre el día-número). IMPRECISA
+// (fechas de voto FA ≠ consumo real) → la UI la muestra con salvedad. Subqueries con alias (PG lo exige).
+const RACHA_SQL =
+  '(SELECT COALESCE(MAX(c), 0) FROM (SELECT COUNT(*) c FROM (' +
+  'SELECT dn - ROW_NUMBER() OVER (ORDER BY dn) AS grp FROM (' +
+  'SELECT DISTINCT CAST(julianday(fecha) AS INTEGER) dn FROM entrada WHERE fecha IS NOT NULL) days) grps ' +
+  'GROUP BY grp) runs)';
+// Antigüedad = span de años calendario tocados (max año − min año + 1). Dato directo (~2006→hoy).
+const ANIOS_SQL =
+  "(SELECT COALESCE(MAX(CAST(strftime('%Y', fecha) AS INTEGER)) - " +
+  "MIN(CAST(strftime('%Y', fecha) AS INTEGER)) + 1, 0) FROM entrada WHERE fecha IS NOT NULL)";
+
 export const METRICS = {
   // --- tiempo ---
   MET_HORAS_TOTALES: plain(horas()),
@@ -88,7 +112,34 @@ export const METRICS = {
     "(SELECT CASE WHEN COUNT(*) > 0 THEN 100.0 * SUM(CASE WHEN idioma_original IS NOT NULL AND idioma_original <> 'es' THEN 1 ELSE 0 END) / COUNT(*) ELSE 0 END FROM obra)"
   ),
 
-  // --- group-by con parámetro (M6): {metrica, param:{categoria}, op, valor} ---
+  // --- progresión RPG (EXP/Nivel/Racha/Antigüedad/Canon/Colecciones/Completas) ---
+  MET_EXP_TOTAL: plain(EXP_SQL),
+  MET_NIVEL: plain(NIVEL_SQL),
+  MET_RACHA_MAXIMA: plain(RACHA_SQL),
+  MET_ANIOS_ARCHIVO: plain(ANIOS_SQL),
+  MET_MOMENTOS_CANON: plain('(SELECT COUNT(*) FROM momento_canon)'),
+  MET_MOMENTOS_CANON_DESTACADOS: plain('(SELECT COUNT(*) FROM momento_canon WHERE destacado = 1)'),
+  MET_COLECCIONES_CREADAS: plain('(SELECT COUNT(*) FROM coleccion)'),
+  // "Arquitecto del dato": obra bien documentada = año + género (metadato real) + tu valoración
+  // (input personal). La nota de texto libre no se exige (el corpus FA/Steam no la trae).
+  MET_OBRAS_COMPLETAS: plain(
+    "(SELECT COUNT(*) FROM obra o WHERE o.anio_obra IS NOT NULL" +
+    " AND EXISTS (SELECT 1 FROM obra_etiqueta oe JOIN etiqueta et ON et.id = oe.etiqueta_id" +
+    " WHERE oe.obra_id = o.id AND et.taxonomia = 'genero')" +
+    " AND EXISTS (SELECT 1 FROM entrada e WHERE e.obra_id = o.id AND e.valoracion IS NOT NULL))"
+  ),
+
+  // --- group-by con parámetro (M6 + clase): {metrica, param:{categoria}, op, valor} ---
+  // Clase principal POR OBRA: 1 si `categoria` es la de más obras (la medida principal, coherente
+  // con la EXP por obra). La doble lente por horas es display (RPC), no decide el logro.
+  MET_ES_CLASE_PRINCIPAL: (param) => {
+    const cat = requireCategoria(param);
+    return {
+      sql: '(SELECT CASE WHEN (SELECT COUNT(*) FROM obra WHERE categoria = ?) = ' +
+        '(SELECT MAX(c) FROM (SELECT COUNT(*) c FROM obra GROUP BY categoria) z) THEN 1 ELSE 0 END)',
+      params: [cat]
+    };
+  },
   MET_TIEMPO_POR_CATEGORIA: (param) => {
     const cat = requireCategoria(param);
     return {
@@ -117,12 +168,10 @@ function requireCategoria(param) {
   return cat;
 }
 
-// Metrics still deferred: streaks (rachas) need consecutive-day logic and the selector
-// superlatives return (entidad,valor) pairs — both are the V1-S5 work, out of scope here.
-// (The entropy Índice de Diversidad + sub-dimensiones YA están implementadas arriba.)
+// Deferred: la racha ACTUAL (días consecutivos hasta hoy, depende de "hoy") y los selectores
+// superlativos que devuelven (entidad,valor). MET_RACHA_MAXIMA YA está implementada arriba.
 const DEFERRED = new Set([
   'MET_RACHA_ACTUAL',
-  'MET_RACHA_MAXIMA',
   'MET_TOP_DECADA',
   'MET_TOP_OBRA',
   'MET_TOP_IMPACTO',

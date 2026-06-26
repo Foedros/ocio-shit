@@ -379,6 +379,107 @@ select jsonb_build_object(
      from rb where rk <= 3));
 $$;
 
+-- ── PROGRESIÓN RPG (EXP/Nivel/Clase/Antigüedad/Racha/Momentos-canon) para el Perfil ─────────
+-- TODO se deriva de datos que YA existen (entradas, obras, categorías, fechas, valoraciones,
+-- logros). Nada estimado. EXP=100/entrada + Σ logro.exp desbloqueados. Nivel: req(L)=round(50·L^1.5)
+-- (la MISMA curva que MET_NIVEL del compilador). Clase: doble lente por OBRA (medida principal) y
+-- por HORAS. Racha: máx. días consecutivos (imprecisa por fechas FA → la UI lo advierte). Momentos
+-- canon AUTO: obras redondas (1.000/2.000/…), día cumbre, primera de cada categoría, primer 10.
+-- SECURITY INVOKER + STABLE, solo lectura.
+create or replace function ocio_progresion()
+  returns jsonb language plpgsql security invoker stable set search_path = public
+as $$
+declare
+  v_ent int; v_logro_exp int; v_exp bigint;
+  v_nivel int; v_e_nivel numeric; v_e_next numeric; v_prog numeric;
+  v_obra jsonb; v_horas jsonb; v_auto jsonb;
+  v_min date; v_span int; v_racha int; v_canon int; v_dest int;
+begin
+  select count(*) into v_ent from entrada;
+  select coalesce(sum(l.exp), 0) into v_logro_exp from logro l join logro_desbloqueado ld on ld.logro_id = l.id;
+  v_exp := 100::bigint * v_ent + v_logro_exp;
+
+  with recursive lv(l, e) as (
+      select 1, 0.0 union all select l + 1, e + round(50 * power(l, 1.5)) from lv where l < 300),
+  pick as (select l, e, lead(e) over (order by l) e_next from lv)
+  select l, e, e_next into v_nivel, v_e_nivel, v_e_next from pick where e <= v_exp order by l desc limit 1;
+  v_prog := case when v_e_next > v_e_nivel then round((v_exp - v_e_nivel) / (v_e_next - v_e_nivel), 3) else 0 end;
+
+  select jsonb_agg(jsonb_build_object('categoria', categoria, 'arquetipo', arq, 'n', n, 'pct', pct) order by n desc)
+    into v_obra from (
+      select categoria, count(*)::int n, round(100.0 * count(*) / sum(count(*)) over (), 1) pct,
+        case categoria when 'pelicula' then 'Cinéfilo' when 'videojuego' then 'Jugador' when 'serie' then 'Seriéfilo'
+          when 'libro' then 'Lector' when 'comic' then 'Viñetista' when 'ocio_libre' then 'Explorador' else categoria end arq
+      from obra group by categoria) zo;
+  select jsonb_agg(jsonb_build_object('categoria', categoria, 'arquetipo', arq, 'horas', horas, 'pct', pct) order by horas desc)
+    into v_horas from (
+      select o.categoria, round(coalesce(sum(e.duracion_min), 0) / 60.0)::int horas,
+        round(100.0 * coalesce(sum(e.duracion_min), 0) / nullif(sum(sum(e.duracion_min)) over (), 0), 1) pct,
+        case o.categoria when 'pelicula' then 'Cinéfilo' when 'videojuego' then 'Jugador' when 'serie' then 'Seriéfilo'
+          when 'libro' then 'Lector' when 'comic' then 'Viñetista' when 'ocio_libre' then 'Explorador' else o.categoria end arq
+      from obra o join entrada e on e.obra_id = o.id group by o.categoria
+      having coalesce(sum(e.duracion_min), 0) > 0) zh;
+
+  select min(fecha), (extract(year from max(fecha)) - extract(year from min(fecha)) + 1)::int
+    into v_min, v_span from entrada where fecha is not null;
+
+  select coalesce(max(c), 0) into v_racha from (
+    select count(*) c from (
+      select dn - row_number() over (order by dn) grp from (
+        select distinct (fecha::date - date '2000-01-01') dn from entrada where fecha is not null) d) g group by grp) r;
+
+  select count(*), count(*) filter (where destacado = 1) into v_canon, v_dest from momento_canon;
+
+  with obra_first as (select obra_id, min(fecha) f from entrada where fecha is not null group by obra_id),
+       ranked as (select o.titulo, o.categoria, ofr.f, row_number() over (order by ofr.f, o.id) rn
+                  from obra_first ofr join obra o on o.id = ofr.obra_id)
+  select
+    coalesce((select jsonb_agg(jsonb_build_object('tipo','obra_redonda','n',rn,'titulo',titulo,'fecha',f) order by rn)
+              from ranked where rn in (1000,2000,3000,4000)), '[]'::jsonb)
+    || coalesce((select jsonb_build_array(jsonb_build_object('tipo','dia_cumbre','fecha',fecha,'n',c))
+                 from (select fecha, count(*) c from entrada where fecha is not null group by fecha order by c desc, fecha limit 1) zd), '[]'::jsonb)
+    || coalesce((select jsonb_agg(jsonb_build_object('tipo','primera_categoria','categoria',categoria,'titulo',titulo,'fecha',f) order by f)
+                 from (select distinct on (categoria) categoria, titulo, f from ranked order by categoria, f, rn) zp), '[]'::jsonb)
+    || coalesce((select jsonb_build_array(jsonb_build_object('tipo','primer_diez','titulo',o.titulo,'fecha',e.fecha))
+                 from entrada e join obra o on o.id = e.obra_id where e.valoracion = 10 and e.fecha is not null order by e.fecha, e.id limit 1), '[]'::jsonb)
+    into v_auto;
+
+  return jsonb_build_object(
+    'exp', jsonb_build_object('total', v_exp, 'base', 100::bigint * v_ent, 'logros', v_logro_exp, 'por_entrada', 100),
+    'nivel', jsonb_build_object('nivel', v_nivel, 'e_nivel', v_e_nivel, 'e_siguiente', v_e_next, 'progreso', v_prog),
+    'clase', jsonb_build_object('por_obra', coalesce(v_obra, '[]'::jsonb), 'por_horas', coalesce(v_horas, '[]'::jsonb)),
+    'antiguedad', jsonb_build_object('desde', v_min, 'anios', v_span),
+    'racha', jsonb_build_object('maxima', v_racha),
+    'canon', jsonb_build_object('manual', v_canon, 'destacados', v_dest, 'auto', coalesce(v_auto, '[]'::jsonb)));
+end;
+$$;
+
+-- Marca/desmarca una entrada como MOMENTO CANON (curación manual). Idempotente. La marca se persiste
+-- (a diferencia de los auto-detectados, que se derivan al vuelo). SECURITY INVOKER (RLS por owner_id,
+-- no DEFINER), authenticated-only.
+create or replace function ocio_set_canon(p_entrada_id text, p_on boolean, p_titulo text default null, p_por_que text default null)
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare v_obra text; v_existing text; v_tit text;
+begin
+  select obra_id into v_obra from entrada where id = p_entrada_id;     -- RLS: solo lo del dueño
+  if v_obra is null then return jsonb_build_object('ok', false); end if;
+  select id into v_existing from momento_canon where entrada_id = p_entrada_id;
+  if p_on then
+    v_tit := coalesce(nullif(btrim(p_titulo), ''), (select titulo from obra where id = v_obra));
+    if v_existing is null then
+      insert into momento_canon (id, entrada_id, titulo, por_que_importa, destacado)
+        values (gen_random_uuid()::text, p_entrada_id, v_tit, nullif(btrim(p_por_que), ''), 1);
+    else
+      update momento_canon set titulo = v_tit, por_que_importa = nullif(btrim(p_por_que), ''), destacado = 1 where id = v_existing;
+    end if;
+  else
+    delete from momento_canon where entrada_id = p_entrada_id;
+  end if;
+  return jsonb_build_object('ok', true, 'canon', p_on);
+end;
+$$;
+
 -- ── TIMELINE (pantalla 04): macro por AÑO DE ENTRADA + detalle por año bajo demanda ─────────
 -- CRÍTICO: el eje es la FECHA DE LA ENTRADA (cuándo se vivió), NO anio_obra (año de estreno).
 -- Una peli de 1958 vista en 2010 cae en 2010. Macro = volumen+mezcla por año (rápido); el
@@ -544,6 +645,8 @@ revoke all on function ocio_materialize_collection(text, text, jsonb) from publi
 revoke all on function ocio_apply_r1()              from public, anon;
 revoke all on function ocio_stats()                 from public, anon;
 revoke all on function ocio_hall()                  from public, anon;
+revoke all on function ocio_progresion()            from public, anon;
+revoke all on function ocio_set_canon(text, boolean, text, text) from public, anon;
 revoke all on function ocio_timeline_macro()        from public, anon;
 revoke all on function ocio_timeline_year(integer)  from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
@@ -556,5 +659,7 @@ grant  execute on function ocio_materialize_collection(text, text, jsonb) to aut
 grant  execute on function ocio_apply_r1()          to authenticated;
 grant  execute on function ocio_stats()             to authenticated;
 grant  execute on function ocio_hall()              to authenticated;
+grant  execute on function ocio_progresion()        to authenticated;
+grant  execute on function ocio_set_canon(text, boolean, text, text) to authenticated;
 grant  execute on function ocio_timeline_macro()    to authenticated;
 grant  execute on function ocio_timeline_year(integer) to authenticated;
