@@ -28,6 +28,14 @@ export async function getSession() {
   const { data } = await supabase.auth.getSession();
   return data.session;
 }
+// El user_metadata vive en el JWT de la sesión, que puede estar CADUCADO (un cambio out-of-band —
+// p. ej. el nombre editado en otra sesión/dispositivo— no se refleja hasta que el token se refresca).
+// getUser() lo trae FRESCO del servidor. Se usa al arrancar para que el nombre mostrado sea el actual.
+export async function getFreshUser() {
+  const { data, error } = await supabase.auth.getUser();
+  if (error) return null;
+  return data.user;
+}
 export function onAuthChange(cb) {
   return supabase.auth.onAuthStateChange((event, session) => cb(session, event));
 }

@@ -30,15 +30,23 @@ export async function boot() {
   started = true;
   phase.set('init');
   busy.set('Conectando con Supabase…');
-  // React to sign-in/out for the lifetime of the tab.
-  data.onAuthChange((session, event) => applySession(session, event));
+  // React to sign-in/out for the lifetime of the tab. INITIAL_SESSION lo gestiona el arranque de
+  // abajo (con el user fresco); aquí solo SIGNED_IN/OUT, USER_UPDATED, TOKEN_REFRESHED (donde el
+  // session.user ya viene fresco) — evita pisar el user fresco con el del JWT cacheado.
+  data.onAuthChange((session, event) => { if (event !== 'INITIAL_SESSION') applySession(session, event); });
   const session = await data.getSession();
-  await applySession(session);
+  // La sesión RESTAURADA trae el user_metadata del JWT cacheado, que puede estar caducado (el nombre
+  // pudo editarse en otra sesión/dispositivo). Traer el user FRESCO del servidor — FUERA del callback
+  // de onAuthChange (allí provocaría deadlock del auth-lock). En SIGNED_IN/USER_UPDATED el session.user
+  // ya viene fresco de la propia operación, así que solo hace falta en este arranque.
+  let freshUser = session?.user ?? null;
+  if (session) { try { freshUser = (await data.getFreshUser()) ?? freshUser; } catch { /* usa el del JWT */ } }
+  await applySession(session, 'INITIAL', freshUser);
   busy.set(null);
 }
 
-async function applySession(session, event) {
-  auth.set({ session: session ?? null, user: session?.user ?? null, ready: true });
+async function applySession(session, event, freshUser) {
+  auth.set({ session: session ?? null, user: freshUser ?? session?.user ?? null, ready: true });
   if (session) {
     role.set('leader'); // every authenticated tab can write (Postgres arbitrates)
     // USER_UPDATED (p. ej. cambiar el nombre de display) NO debe recargar todo el archivo.
