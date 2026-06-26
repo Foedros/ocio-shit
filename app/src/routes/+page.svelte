@@ -10,13 +10,14 @@
   import PerfilPanel from '$lib/components/PerfilPanel.svelte';
   import HallPanel from '$lib/components/HallPanel.svelte';
   import HomePanel from '$lib/components/HomePanel.svelte';
+  import WrappedPanel from '$lib/components/WrappedPanel.svelte';
   import QuickAddForm from '$lib/components/QuickAddForm.svelte';
   import Login from '$lib/components/Login.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
   import Toast from '$lib/components/Toast.svelte';
 
-  let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | perfil | hall | cuenta
+  let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | wrapped | perfil | hall | cuenta
   let showAdd = $state(false);
 
   // Nombre de display editable (Cuenta). Se inicializa una vez con el valor guardado en user_metadata.
@@ -52,6 +53,7 @@
   <button class:active={view === 'colecciones'} onclick={() => (view = 'colecciones')}>Colecciones</button>
   <button class:active={view === 'estadisticas'} onclick={() => (view = 'estadisticas')}>Estadísticas</button>
   <button class:active={view === 'timeline'} onclick={() => (view = 'timeline')}>Timeline</button>
+  <button class:active={view === 'wrapped'} onclick={() => (view = 'wrapped')}>Wrapped</button>
   <button class:active={view === 'perfil'} onclick={() => (view = 'perfil')}>Perfil</button>
   <button class:active={view === 'hall'} onclick={() => (view = 'hall')}>Hall of Fame</button>
   <button class:active={view === 'cuenta'} onclick={() => (view = 'cuenta')}>Cuenta</button>
@@ -76,6 +78,8 @@
   <EstadisticasPanel />
 {:else if view === 'timeline'}
   <TimelinePanel />
+{:else if view === 'wrapped'}
+  <WrappedPanel />
 {:else if view === 'perfil'}
   <PerfilPanel />
 {:else if view === 'hall'}

@@ -154,6 +154,19 @@ export async function home() {
   return data;
 }
 
+// Wrapped (05): lista de años (antesala + sellados) y el anuario de un año sellado. Eje = fecha de
+// entrada; el sellado se deriva de la fecha (año < actual). Solo lectura.
+export async function wrappedYears() {
+  const { data, error } = await supabase.rpc('ocio_wrapped_years');
+  fail(error, 'wrappedYears');
+  return data;
+}
+export async function wrapped(year) {
+  const { data, error } = await supabase.rpc('ocio_wrapped', { p_year: year });
+  fail(error, 'wrapped');
+  return data;
+}
+
 // Progresión RPG (Perfil): EXP, Nivel, Clase (doble lente obra/horas), antigüedad, racha, momentos
 // canon (auto + manual). Todo derivado de datos reales, server-side. Solo lectura.
 export async function progresion() {

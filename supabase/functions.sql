@@ -526,6 +526,90 @@ begin
 end;
 $$;
 
+-- ── WRAPPED (05): el anuario que se SELLA. Eje = FECHA DE ENTRADA (como el Timeline) ────────
+-- MECÁNICA DE SELLADO (derivada de la fecha, no hardcodeada): un año está SELLADO cuando ya
+-- terminó (anio < extract(year from now())); el año natural actual está en ANTESALA. Un sellado
+-- es FIJO en el sentido de que no cambia por el paso del tiempo (el año se acabó), pero se
+-- RECALCULA de los datos actuales → refleja TODO lo que haya con fecha de entrada en ese año
+-- (si añades una entrada retroactiva a un año cerrado, aparece). No es un snapshot congelado.
+-- HONESTIDAD: el archivo mezcla consumo en vivo con votos FA retroactivos → "año de ACTIVIDAD
+-- (registro + consumo)", nunca "esto viviste". Solo lectura. SECURITY INVOKER + STABLE.
+
+-- Lista de años (antesala + sellados) para el Archivo + el teaser del año en curso.
+create or replace function ocio_wrapped_years()
+  returns jsonb language plpgsql security invoker stable set search_path = public
+as $$
+declare v_actual int := extract(year from now())::int; v_years jsonb; v_antesala jsonb;
+begin
+  select coalesce(jsonb_agg(jsonb_build_object('anio', y, 'obras', obras, 'entradas', ents,
+           'sellado', y < v_actual) order by y desc), '[]'::jsonb) into v_years
+    from (select extract(year from fecha)::int y, count(distinct obra_id)::int obras, count(*)::int ents
+          from entrada where fecha is not null group by 1) z;
+  v_antesala := jsonb_build_object(
+    'anio', v_actual,
+    'obras', (select count(distinct obra_id) from entrada where extract(year from fecha) = v_actual),
+    'dias_para_sellar', greatest(0, make_date(v_actual, 12, 31) - current_date),
+    'mezcla', (select coalesce(jsonb_agg(jsonb_build_object('categoria', categoria, 'obras', n) order by n desc), '[]'::jsonb)
+               from (select o.categoria, count(distinct o.id)::int n from obra o join entrada e on e.obra_id = o.id
+                     where extract(year from e.fecha) = v_actual group by o.categoria) m));
+  return jsonb_build_object('actual', v_actual, 'years', v_years, 'antesala', v_antesala);
+end;
+$$;
+
+-- El anuario completo de UN año (las 7 stories). Reusa la lógica de nota_obra de ocio_hall
+-- (avg de valoraciones de la obra) y de creador/género de ocio_stats, FILTRADA por año de entrada.
+create or replace function ocio_wrapped(p_year integer)
+  returns jsonb language plpgsql security invoker stable set search_path = public
+as $$
+declare v_vol jsonb; v_cumbre jsonb; v_max numeric; v_emp int; v_gen jsonb; v_gendist int;
+        v_pers jsonb; v_histo jsonb; v_mesc jsonb; v_tot int; v_meses int;
+begin
+  select coalesce(jsonb_agg(jsonb_build_object('categoria', categoria, 'obras', n) order by n desc), '[]'::jsonb),
+         coalesce(sum(n), 0)::int into v_vol, v_tot
+    from (select o.categoria, count(distinct o.id)::int n from obra o join entrada e on e.obra_id = o.id
+          where extract(year from e.fecha) = p_year group by o.categoria) z;
+  select count(distinct extract(month from fecha))::int into v_meses from entrada where extract(year from fecha) = p_year;
+
+  -- cumbre del año: mejor nota_obra (avg, como ocio_hall) entre obras con ENTRADA en el año.
+  with wn as (
+    select o.id, o.titulo, o.categoria, round(avg(e.valoracion)::numeric, 1) nota, max(e.fecha) ult
+    from obra o join entrada e on e.obra_id = o.id
+    where o.id in (select distinct obra_id from entrada where extract(year from fecha) = p_year)
+      and e.valoracion is not null group by o.id)
+  select jsonb_build_object('titulo', titulo, 'categoria', categoria, 'inicial', upper(left(titulo, 1)), 'nota', nota), nota
+    into v_cumbre, v_max from wn order by nota desc nulls last, ult desc nulls last, id limit 1;
+  with wn as (
+    select o.id, round(avg(e.valoracion)::numeric, 1) nota from obra o join entrada e on e.obra_id = o.id
+    where o.id in (select distinct obra_id from entrada where extract(year from fecha) = p_year)
+      and e.valoracion is not null group by o.id)
+  select count(*)::int into v_emp from wn where nota = v_max;
+
+  select coalesce(jsonb_agg(jsonb_build_object('nombre', nombre, 'n', n) order by n desc), '[]'::jsonb) into v_gen from (
+    select et.nombre, count(distinct oe.obra_id)::int n from obra_etiqueta oe join etiqueta et on et.id = oe.etiqueta_id
+    where et.taxonomia = 'genero' and oe.obra_id in (select distinct obra_id from entrada where extract(year from fecha) = p_year)
+    group by et.nombre order by n desc limit 6) z;
+  select count(distinct et.id)::int into v_gendist from obra_etiqueta oe join etiqueta et on et.id = oe.etiqueta_id
+    where et.taxonomia = 'genero' and oe.obra_id in (select distinct obra_id from entrada where extract(year from fecha) = p_year);
+
+  select jsonb_build_object('nombre', nombre, 'inicial', upper(left(nombre, 1)), 'n', n) into v_pers from (
+    select p.nombre, count(distinct oc.obra_id)::int n from obra_creador oc join persona p on p.id = oc.persona_id
+    where oc.obra_id in (select distinct obra_id from entrada where extract(year from fecha) = p_year)
+    group by p.nombre order by n desc, p.nombre limit 1) z;
+
+  select coalesce(jsonb_agg(jsonb_build_object('mes', m, 'n', n) order by m), '[]'::jsonb) into v_histo from (
+    select g.m, coalesce(c.c, 0)::int n from generate_series(1, 12) g(m)
+    left join (select extract(month from fecha)::int mm, count(*) c from entrada where extract(year from fecha) = p_year group by 1) c on c.mm = g.m) z;
+  select jsonb_build_object('mes', mm, 'n', c) into v_mesc from (
+    select extract(month from fecha)::int mm, count(*)::int c from entrada where extract(year from fecha) = p_year group by 1 order by c desc, mm limit 1) z;
+
+  return jsonb_build_object(
+    'anio', p_year, 'total_obras', v_tot, 'meses_activos', v_meses,
+    'volumen', v_vol, 'cumbre', v_cumbre, 'empate', v_emp, 'nota_max', v_max,
+    'generos', v_gen, 'generos_distintos', v_gendist, 'personaje', v_pers,
+    'mes_cumbre', v_mesc, 'histograma', v_histo, 'sellado_el', make_date(p_year, 12, 31));
+end;
+$$;
+
 -- ── TIMELINE (pantalla 04): macro por AÑO DE ENTRADA + detalle por año bajo demanda ─────────
 -- CRÍTICO: el eje es la FECHA DE LA ENTRADA (cuándo se vivió), NO anio_obra (año de estreno).
 -- Una peli de 1958 vista en 2010 cae en 2010. Macro = volumen+mezcla por año (rápido); el
@@ -692,6 +776,8 @@ revoke all on function ocio_apply_r1()              from public, anon;
 revoke all on function ocio_stats()                 from public, anon;
 revoke all on function ocio_hall()                  from public, anon;
 revoke all on function ocio_home()                  from public, anon;
+revoke all on function ocio_wrapped_years()         from public, anon;
+revoke all on function ocio_wrapped(integer)        from public, anon;
 revoke all on function ocio_progresion()            from public, anon;
 revoke all on function ocio_set_canon(text, boolean, text, text) from public, anon;
 revoke all on function ocio_timeline_macro()        from public, anon;
@@ -707,6 +793,8 @@ grant  execute on function ocio_apply_r1()          to authenticated;
 grant  execute on function ocio_stats()             to authenticated;
 grant  execute on function ocio_hall()              to authenticated;
 grant  execute on function ocio_home()              to authenticated;
+grant  execute on function ocio_wrapped_years()     to authenticated;
+grant  execute on function ocio_wrapped(integer)    to authenticated;
 grant  execute on function ocio_progresion()        to authenticated;
 grant  execute on function ocio_set_canon(text, boolean, text, text) to authenticated;
 grant  execute on function ocio_timeline_macro()    to authenticated;
