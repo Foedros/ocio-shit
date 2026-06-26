@@ -480,6 +480,52 @@ begin
 end;
 $$;
 
+-- ── HOME / DASHBOARD (01): el aterrizaje, en UNA RPC ────────────────────────────────────────
+-- Síntesis + puertas. REUTILIZA las RPCs existentes (no recalcula): llama por dentro a
+-- ocio_progresion()/ocio_hall()/ocio_stats() y extrae SOLO los slivers (nivel/clase, cumbre,
+-- diversidad/obras) → los números de Home son LITERALMENTE los mismos que Perfil/Hall/Estadísticas
+-- (coherencia garantizada, no pueden divergir) + 2 consultas ligeras (recién desbloqueado del
+-- ledger CON fecha real, últimas entradas por fecha de REGISTRO creado_en). 1 round-trip. Como
+-- INVOKER, las RPCs internas también corren como el usuario (RLS). Solo lectura.
+create or replace function ocio_home()
+  returns jsonb language plpgsql security invoker stable set search_path = public
+as $$
+declare v_prog jsonb; v_hall jsonb; v_stats jsonb; v_tit jsonb; v_tit_id text; v_tit_nom text; v_rec jsonb; v_ult jsonb;
+begin
+  v_prog := ocio_progresion();
+  v_hall := ocio_hall();
+  v_stats := ocio_stats();
+  select titulo_activo_id into v_tit_id from perfil_usuario where id = 1;
+  if v_tit_id is not null then
+    select nombre into v_tit_nom from titulo where id = v_tit_id;
+    v_tit := jsonb_build_object('id', v_tit_id, 'nombre', v_tit_nom);
+  end if;
+  -- logro/título más reciente CON fecha real (el ledger; los retro-enriquecidos sin fecha no cuentan)
+  select to_jsonb(r) into v_rec from (
+    select tipo, nombre, rareza, fecha from (
+      select 'logro' tipo, l.nombre, l.rareza, ld.fecha from logro_desbloqueado ld join logro l on l.id = ld.logro_id where ld.fecha is not null
+      union all
+      select 'titulo' tipo, t.nombre, t.rareza, td.fecha from titulo_desbloqueado td join titulo t on t.id = td.titulo_id where td.fecha is not null
+    ) z order by fecha desc, nombre limit 1
+  ) r;
+  -- últimas entradas por fecha de REGISTRO (creado_en), con nombre/categoría/nota/fecha de consumo
+  select coalesce(jsonb_agg(to_jsonb(u) order by u.creado_en desc), '[]'::jsonb) into v_ult from (
+    select e.id, o.id obra_id, o.titulo, o.categoria, e.valoracion, e.fecha, e.estado, e.creado_en
+    from entrada e join obra o on o.id = e.obra_id
+    order by e.creado_en desc, e.id limit 5
+  ) u;
+  return jsonb_build_object(
+    'progresion', v_prog,
+    'cumbre', v_hall->'cumbre',
+    'cumbre_empate', v_hall->'fame'->'empate_top',
+    'diversidad', v_stats->'diversidad'->'indice',
+    'obras', v_stats->'corpus'->'obras',
+    'titulo', v_tit,
+    'reciente', v_rec,
+    'ultimas', v_ult);
+end;
+$$;
+
 -- ── TIMELINE (pantalla 04): macro por AÑO DE ENTRADA + detalle por año bajo demanda ─────────
 -- CRÍTICO: el eje es la FECHA DE LA ENTRADA (cuándo se vivió), NO anio_obra (año de estreno).
 -- Una peli de 1958 vista en 2010 cae en 2010. Macro = volumen+mezcla por año (rápido); el
@@ -645,6 +691,7 @@ revoke all on function ocio_materialize_collection(text, text, jsonb) from publi
 revoke all on function ocio_apply_r1()              from public, anon;
 revoke all on function ocio_stats()                 from public, anon;
 revoke all on function ocio_hall()                  from public, anon;
+revoke all on function ocio_home()                  from public, anon;
 revoke all on function ocio_progresion()            from public, anon;
 revoke all on function ocio_set_canon(text, boolean, text, text) from public, anon;
 revoke all on function ocio_timeline_macro()        from public, anon;
@@ -659,6 +706,7 @@ grant  execute on function ocio_materialize_collection(text, text, jsonb) to aut
 grant  execute on function ocio_apply_r1()          to authenticated;
 grant  execute on function ocio_stats()             to authenticated;
 grant  execute on function ocio_hall()              to authenticated;
+grant  execute on function ocio_home()              to authenticated;
 grant  execute on function ocio_progresion()        to authenticated;
 grant  execute on function ocio_set_canon(text, boolean, text, text) to authenticated;
 grant  execute on function ocio_timeline_macro()    to authenticated;

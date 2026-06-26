@@ -138,6 +138,14 @@ export async function hall() {
   return data;
 }
 
+// Home/Dashboard (01): el aterrizaje en 1 round-trip. ocio_home REUTILIZA ocio_progresion/hall/stats
+// por dentro → los números de Home son los mismos que Perfil/Hall/Estadísticas (coherencia). Solo lectura.
+export async function home() {
+  const { data, error } = await supabase.rpc('ocio_home');
+  fail(error, 'home');
+  return data;
+}
+
 // Progresión RPG (Perfil): EXP, Nivel, Clase (doble lente obra/horas), antigüedad, racha, momentos
 // canon (auto + manual). Todo derivado de datos reales, server-side. Solo lectura.
 export async function progresion() {

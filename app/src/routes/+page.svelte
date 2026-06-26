@@ -9,13 +9,14 @@
   import TimelinePanel from '$lib/components/TimelinePanel.svelte';
   import PerfilPanel from '$lib/components/PerfilPanel.svelte';
   import HallPanel from '$lib/components/HallPanel.svelte';
+  import HomePanel from '$lib/components/HomePanel.svelte';
   import QuickAddForm from '$lib/components/QuickAddForm.svelte';
   import Login from '$lib/components/Login.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
   import Toast from '$lib/components/Toast.svelte';
 
-  let view = $state('diario'); // diario | colecciones | estadisticas | timeline | perfil | hall | cuenta
+  let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | perfil | hall | cuenta
   let showAdd = $state(false);
 
   let canWrite = $derived(!!$auth.session); // every authenticated tab can write (Postgres arbitra)
@@ -34,6 +35,7 @@
   <Login />
 {:else}
 <nav class="tabs">
+  <button class:active={view === 'home'} onclick={() => (view = 'home')}>Inicio</button>
   <button class:active={view === 'diario'} onclick={() => (view = 'diario')}>Diario</button>
   <button class:active={view === 'colecciones'} onclick={() => (view = 'colecciones')}>Colecciones</button>
   <button class:active={view === 'estadisticas'} onclick={() => (view = 'estadisticas')}>Estadísticas</button>
@@ -43,7 +45,9 @@
   <button class:active={view === 'cuenta'} onclick={() => (view = 'cuenta')}>Cuenta</button>
 </nav>
 
-{#if view === 'diario'}
+{#if view === 'home'}
+  <HomePanel onnavigate={(v) => (view = v)} onregister={() => (showAdd = true)} />
+{:else if view === 'diario'}
   {#if isEmpty && canWrite}
     <div class="hero-empty">
       <div class="mark">◇</div>
