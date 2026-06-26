@@ -4,7 +4,7 @@
   // (1 RPC que REUTILIZA ocio_progresion/hall/stats por dentro → coherente con Perfil/Hall/
   // Estadísticas, nunca los números del diseño). Home no escribe (solo lectura).
   import { onMount } from 'svelte';
-  import { auth } from '$lib/stores.js';
+  import { displayName } from '$lib/stores.js';
   import { home } from '$lib/db/supabase-data.js';
 
   let { onnavigate = () => {}, onregister = () => {} } = $props();
@@ -55,7 +55,7 @@
   let hh = ahora.getHours();
   let saludo = $derived(hh < 6 ? 'buenas noches' : hh < 13 ? 'buenos días' : hh < 21 ? 'buenas tardes' : 'buenas noches');
   let cuando = $derived(`${DIAS[ahora.getDay()]} · ${saludo}`);
-  let nombre = $derived(($auth.user?.email || 'Tú').split('@')[0].replace(/^\w/, (c) => c.toUpperCase()));
+  let nombre = $derived($displayName); // fuente única (user_metadata → fallback email)
 
   // ── slivers (todo de ocio_home; coherente con Perfil/Hall/Estadísticas) ──
   let prog = $derived(d?.progresion);

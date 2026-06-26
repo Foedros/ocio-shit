@@ -1,5 +1,5 @@
 // Reactive state for the durability dashboard.
-import { writable } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 
 // Boot/recovery phase:
 //   init | ready | reconstructed | needs-setup | needs-seed | needs-permission | error
@@ -20,6 +20,16 @@ export const durability = writable({
 
 // Stage 3 (Supabase) — auth session of the single user
 export const auth = writable({ session: null, user: null, ready: false });
+
+// FUENTE ÚNICA del nombre de display: el `display_name` guardado en user_metadata de Supabase Auth
+// (editable por el propio usuario); si no hay, se deriva del email (fde868686 → "Fde868686"). Tanto
+// el hero de Home (01) como el carnet del Perfil (08) leen ESTE store — no se hardcodea en cada sitio.
+export const displayName = derived(auth, ($a) => {
+  const meta = $a.user?.user_metadata?.display_name;
+  if (typeof meta === 'string' && meta.trim()) return meta.trim();
+  const email = $a.user?.email;
+  return email ? email.split('@')[0].replace(/^\w/, (c) => c.toUpperCase()) : 'Tú';
+});
 
 // Sprint 2 — multi-tab role + archive view
 export const role = writable('init'); // 'leader' | 'follower' | 'init'

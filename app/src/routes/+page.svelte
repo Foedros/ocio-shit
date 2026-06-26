@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { boot, signOutAction, exportAction, __installTestHooks } from '$lib/boot-supabase.js';
-  import { auth, dbStatus } from '$lib/stores.js';
+  import { boot, signOutAction, exportAction, setDisplayNameAction, __installTestHooks } from '$lib/boot-supabase.js';
+  import { auth, dbStatus, displayName, busy } from '$lib/stores.js';
   import ArchiveList from '$lib/components/ArchiveList.svelte';
   import DetailPanel from '$lib/components/DetailPanel.svelte';
   import ColeccionesPanel from '$lib/components/ColeccionesPanel.svelte';
@@ -18,6 +18,18 @@
 
   let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | perfil | hall | cuenta
   let showAdd = $state(false);
+
+  // Nombre de display editable (Cuenta). Se inicializa una vez con el valor guardado en user_metadata.
+  let nameDraft = $state('');
+  let nameInit = false;
+  $effect(() => {
+    // espera a que exista el USER (no solo ready: el primer ready llega con user=null antes del login)
+    if ($auth.user && !nameInit) {
+      nameDraft = $auth.user.user_metadata?.display_name ?? '';
+      nameInit = true;
+    }
+  });
+  const saveName = () => setDisplayNameAction(nameDraft);
 
   let canWrite = $derived(!!$auth.session); // every authenticated tab can write (Postgres arbitra)
   let isEmpty = $derived(($dbStatus?.counts?.entrada ?? 0) === 0);
@@ -71,6 +83,14 @@
 {:else}
   <section class="cuenta">
     <h2>Cuenta</h2>
+    <div class="name-edit">
+      <label class="nm-lbl" for="dispname">Tu nombre</label>
+      <div class="nm-row">
+        <input id="dispname" bind:value={nameDraft} placeholder="Tu nombre" maxlength="40" autocomplete="off" />
+        <Button variant="secondary" onclick={saveName} disabled={!!$busy || (nameDraft.trim() === ($auth.user?.user_metadata?.display_name ?? ''))}>Guardar</Button>
+      </div>
+      <p class="note small">Así te llama la app — el hero de Inicio y el carnet del Perfil. Ahora luces <strong>{$displayName}</strong>. Si lo dejas vacío, se usa tu email.</p>
+    </div>
     <p class="who">Sesión: <strong>{$auth.user?.email}</strong></p>
     {#if counts}
       <p class="counts">{counts.obra} obras · {counts.entrada} entradas · {counts.persona} personas en Supabase.</p>
@@ -141,6 +161,40 @@
     display: flex;
     gap: 0.6rem;
     flex-wrap: wrap;
+  }
+  .name-edit {
+    width: 100%;
+    max-width: 34em;
+    margin: 0.3rem 0 0.6rem;
+  }
+  .name-edit .nm-lbl {
+    display: block;
+    font-family: var(--font-data, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--label);
+    margin-bottom: 0.35rem;
+  }
+  .name-edit .nm-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .name-edit input {
+    flex: 1;
+    min-width: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 0.55rem 0.7rem;
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+  }
+  .name-edit input:focus {
+    outline: none;
+    border-color: var(--accent);
   }
   .tabs {
     display: flex;

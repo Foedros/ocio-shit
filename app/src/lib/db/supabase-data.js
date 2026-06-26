@@ -29,7 +29,15 @@ export async function getSession() {
   return data.session;
 }
 export function onAuthChange(cb) {
-  return supabase.auth.onAuthStateChange((_e, session) => cb(session));
+  return supabase.auth.onAuthStateChange((event, session) => cb(session, event));
+}
+// Nombre de display: se guarda en user_metadata (Auth), editable por el propio usuario con la clave
+// publishable (updateUser sobre su propia sesión; no toca seguridad). Devuelve el user actualizado.
+export async function setDisplayName(name) {
+  const display_name = (name ?? '').trim();
+  const { data, error } = await supabase.auth.updateUser({ data: { display_name } });
+  if (error) throw new Error(error.message);
+  return data.user;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

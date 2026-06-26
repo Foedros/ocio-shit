@@ -5,7 +5,7 @@
   // muestra del diseño. Dinámico: se reevalúa al leer (un logro que cruce su umbral pasa a
   // conseguido solo). El título equipado se guarda por RPC INVOKER (ocio_set_titulo_activo).
   import { onMount } from 'svelte';
-  import { auth } from '$lib/stores.js';
+  import { displayName } from '$lib/stores.js';
   import { stats, evaluateLogros, getProfile, setTituloActivo, progresion } from '$lib/db/supabase-data.js';
 
   let loading = $state(true);
@@ -141,7 +141,7 @@
   );
 
   // nombre del usuario (de la sesión) + inicial del carnet
-  let nombre = $derived(($auth.user?.email || 'Tú').split('@')[0].replace(/^\w/, (c) => c.toUpperCase()));
+  let nombre = $derived($displayName); // fuente única (user_metadata → fallback email)
   let inicial = $derived(nombre.charAt(0).toUpperCase());
 
   // ── ADN como identidad (rasgos narrados desde datos reales; NO el dashboard de Estadísticas) ──

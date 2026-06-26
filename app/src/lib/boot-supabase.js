@@ -31,17 +31,18 @@ export async function boot() {
   phase.set('init');
   busy.set('Conectando con Supabase…');
   // React to sign-in/out for the lifetime of the tab.
-  data.onAuthChange((session) => applySession(session));
+  data.onAuthChange((session, event) => applySession(session, event));
   const session = await data.getSession();
   await applySession(session);
   busy.set(null);
 }
 
-async function applySession(session) {
+async function applySession(session, event) {
   auth.set({ session: session ?? null, user: session?.user ?? null, ready: true });
   if (session) {
     role.set('leader'); // every authenticated tab can write (Postgres arbitrates)
-    await loadEverything();
+    // USER_UPDATED (p. ej. cambiar el nombre de display) NO debe recargar todo el archivo.
+    if (event !== 'USER_UPDATED') await loadEverything();
   } else {
     role.set('init');
     phase.set('needs-login');
@@ -82,6 +83,25 @@ export async function signInAction(email, password) {
 
 export async function signOutAction() {
   await data.signOut();
+}
+
+// Cambiar el nombre de display (user_metadata). Optimista: actualiza el auth store al momento; el
+// evento USER_UPDATED confirma sin recargar el archivo. El nombre lo leen Home/Perfil vía displayName.
+export async function setDisplayNameAction(name) {
+  busy.set('Guardando el nombre…');
+  try {
+    const user = await data.setDisplayName(name);
+    auth.update((a) => ({ ...a, user }));
+    logEvent('ok', `Nombre de display: "${user?.user_metadata?.display_name || '(vacío)'}".`);
+    showToast('Nombre actualizado');
+    return true;
+  } catch (err) {
+    logEvent('error', `No se pudo guardar el nombre: ${err.message}`);
+    showToast('No se pudo guardar', 'error');
+    return false;
+  } finally {
+    busy.set(null);
+  }
 }
 
 // ── Export portable (anti-lock-in): descarga el export.json completo desde Supabase ──────────
@@ -321,6 +341,7 @@ export function __installTestHooks() {
   window.__ocio = {
     signIn: (e, p) => signInAction(e, p),
     signOut: () => signOutAction(),
+    setDisplayName: (n) => setDisplayNameAction(n),
     status: () => data.status(),
     listEntries: (f) => data.listEntries(f || {}),
     addEntry: (p) => addEntryAction(p),
