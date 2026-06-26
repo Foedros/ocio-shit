@@ -4,6 +4,12 @@
 //   Pasada 2 — clasifica (módulo compartido) y para ALTA CONFIANZA baja el detalle del
 //             match (/movie/{id}+credits): géneros es-ES + director.
 // Casa por título+año; la clasificación vive en lib/tmdb-match.mjs (misma que el dry-run).
+//
+// HISTÓRICO (2026-06-26): el enriquecimiento TMDB ya está aplicado y guardado en Supabase, y los
+// metadatos nuevos se meten A MANO desde la app. La clave TMDB original fue REVOCADA. Este script
+// (y los demás tmdb-*.mjs que llaman a la API) solo se conserva por trazabilidad: para REEJECUTARLO
+// hay que GENERAR UNA CLAVE TMDB NUEVA y ponerla en .env como TMDB_API_KEY; si falta, sale con
+// código 2 (no rompe nada más — ni el frontend ni los scripts activos dependen de esta clave).
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
