@@ -118,7 +118,46 @@ export async function getObra(obraId) {
     .eq('obra_id', obraId)
     .order('fecha', { ascending: false, nullsFirst: false });
   fail(e2, 'getObra.entradas');
-  return { obra, entradas: ents.map(mapEntry) };
+  const { data: gens } = await supabase.from('obra_etiqueta').select('etiqueta(nombre, taxonomia)').eq('obra_id', obraId);
+  const generos = (gens || []).map((g) => g.etiqueta).filter((e) => e && e.taxonomia === 'genero').map((e) => e.nombre);
+  return { obra, entradas: ents.map(mapEntry), generos };
+}
+
+// Create-vs-link: detecta si ya existe una obra de este título+categoría (identidad = clave_dedup,
+// que incluye el año). Devuelve sus metadatos para PRE-RELLENAR el form (confirmar/corregir, no a
+// ciegas). Si hay año, casa por año exacto; si no, casa solo cuando hay UNA candidata (si hay varias
+// de años distintos → ambiguo, el form pedirá el año). Lectura RLS-scoped (sin RPC nueva).
+export async function lookupObra(titulo, categoria, anio) {
+  const t = String(titulo || '').trim();
+  if (!t || !categoria) return { exists: false };
+  const esc = t.replace(/[\\%_]/g, (m) => '\\' + m); // ilike: escapa comodines % _ \
+  const { data, error } = await supabase
+    .from('obra')
+    .select('id, titulo, anio_obra, creador, categoria')
+    .eq('categoria', categoria)
+    .ilike('titulo', esc)
+    .limit(12);
+  fail(error, 'lookupObra');
+  const rows = data || [];
+  const y = anio != null && anio !== '' ? Math.trunc(Number(anio)) : null;
+  let match = null;
+  if (y != null) match = rows.find((r) => r.anio_obra === y) || null;
+  else if (rows.length === 1) match = rows[0];
+  if (!match) return { exists: false, multiple: y == null && rows.length > 1 };
+  const [{ data: gens }, { count }] = await Promise.all([
+    supabase.from('obra_etiqueta').select('etiqueta(nombre, taxonomia)').eq('obra_id', match.id),
+    supabase.from('entrada').select('id', { count: 'exact', head: true }).eq('obra_id', match.id)
+  ]);
+  const generos = (gens || []).map((g) => g.etiqueta).filter((e) => e && e.taxonomia === 'genero').map((e) => e.nombre);
+  return { exists: true, obraId: match.id, titulo: match.titulo, anio_obra: match.anio_obra, creador: match.creador, generos, n_entradas: count ?? 0 };
+}
+
+// Slugs de género existentes (taxonomía 'genero') para el datalist del registro — el usuario elige
+// de la taxonomía canónica (en español) en vez de inventar variantes.
+export async function listGeneros() {
+  const { data, error } = await supabase.from('etiqueta').select('nombre').eq('taxonomia', 'genero').order('nombre');
+  fail(error, 'listGeneros');
+  return (data || []).map((e) => e.nombre);
 }
 
 export async function filterOptions() {

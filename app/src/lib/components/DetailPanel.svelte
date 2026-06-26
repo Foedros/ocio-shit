@@ -3,7 +3,7 @@
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
   import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction } from '$lib/boot-supabase.js';
-  import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS } from '$lib/db/queries.js';
+  import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS, generoLabel } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
 
@@ -137,6 +137,12 @@
       {#if o.duracion_canonica_min}<div><dt>Duración</dt><dd>{o.duracion_canonica_min} min</dd></div>{/if}
       <div><dt>Entradas</dt><dd>{$detail.data.entradas.length}</dd></div>
     </dl>
+    {#if $detail.data.generos?.length}
+      <div class="eyebrow">Género</div>
+      <div class="gen-chips">
+        {#each $detail.data.generos as g}<span class="gchip">{generoLabel(g)}</span>{/each}
+      </div>
+    {/if}
     <div class="eyebrow">Entradas</div>
     <ul class="entries">
       {#each $detail.data.entradas as en}
@@ -213,6 +219,20 @@
     text-transform: uppercase;
     color: var(--label);
     margin: 0.6rem 0 0.4rem;
+  }
+  .gen-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+  }
+  .gchip {
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: var(--radius-pill);
+    padding: 0.24rem 0.6rem;
+    font-size: 0.82rem;
   }
   .entries {
     list-style: none;

@@ -12,6 +12,18 @@
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- ── ALTA: Obra (reusada por clave_dedup o nueva) + Entrada, en una transacción ──────────────
+-- METADATOS DE OBRA A MANO (2026-06-26): además de titulo/categoria/anio, acepta opcionalmente
+--   p.obra.creador  : nombre (texto) del director/developer/autor — se vincula como obra_creador
+--                     con rol_credito POR CATEGORÍA (director cine/serie · developer videojuego ·
+--                     autor libro/comic · creador ocio_libre, = corpus enriquecido FA/Steam) y se
+--                     fija obra.creador (patrón FA). Cierra el hueco "obras nuevas sin creador".
+--   p.obra.generos  : array de SLUGS de género (el cliente ya normaliza al español; reusa las
+--                     etiquetas tmdb/steam por nombre, no duplica; cuenta igual para diversidad).
+-- REGLA DE CONFLICTO (manual gana, NUNCA a ciegas): el formulario PRE-RELLENA estos campos cuando
+-- detecta una obra existente (el usuario los ve antes de guardar). Al guardar: creador (texto +
+-- vínculo de ESE rol) se REEMPLAZA por el del usuario; un set de géneros NO vacío REEMPLAZA las
+-- etiquetas de taxonomía 'genero' de la obra (permite corregir un género erróneo); creador/géneros
+-- vacíos = NO-OP (un reconsumo que no los toca nunca los borra). País/idioma NO se tocan (decisión).
 create or replace function ocio_add_entry(p jsonb)
   returns jsonb
   language plpgsql
@@ -33,6 +45,12 @@ declare
   v_dur_entry  integer;
   v_reconsumo  integer;
   v_entrada_id text    := gen_random_uuid()::text;
+  v_creador    text    := nullif(trim(coalesce(p->'obra'->>'creador','')), '');
+  v_rol        text;
+  v_persona_id text;
+  v_generos    jsonb   := p->'obra'->'generos';
+  v_gen        text;
+  v_etq_id     text;
 begin
   if v_titulo = '' then raise exception 'El título es obligatorio.'; end if;
   if v_categoria not in ('pelicula','serie','libro','videojuego','comic','ocio_libre') then
@@ -51,9 +69,25 @@ begin
     v_dur_in := greatest(0, trunc((p->'entrada'->>'duracion_min')::numeric)::integer);
   end if;
 
+  -- rol_credito por categoría (mismo criterio que el corpus enriquecido).
+  v_rol := case v_categoria
+             when 'pelicula' then 'director' when 'serie' then 'director'
+             when 'videojuego' then 'developer'
+             when 'libro' then 'autor' when 'comic' then 'autor'
+             else 'creador' end;
+
   -- Dedup contra la columna generada clave_dedup (= lower(titulo)|categoria|coalesce(anio::text,'')).
   select id into v_obra_id from obra
    where clave_dedup = lower(v_titulo) || '|' || v_categoria || '|' || coalesce(v_anio::text,'');
+
+  -- Year-fill (red de seguridad create-vs-link): sin match exacto pero con año del usuario y EXACTAMENTE
+  -- una obra SIN año del mismo título+categoría → rellena su año en vez de duplicar.
+  if v_obra_id is null and v_anio is not null then
+    if (select count(*) from obra where lower(titulo)=lower(v_titulo) and categoria=v_categoria and anio_obra is null) = 1 then
+      select id into v_obra_id from obra where lower(titulo)=lower(v_titulo) and categoria=v_categoria and anio_obra is null;
+      update obra set anio_obra = v_anio, decada = (v_anio/10)*10 where id = v_obra_id;
+    end if;
+  end if;
 
   if v_obra_id is null then
     v_obra_id := gen_random_uuid()::text;
@@ -63,6 +97,36 @@ begin
       values (v_obra_id, v_titulo, v_categoria, v_anio,
               case when v_anio is not null then (v_anio/10)*10 else null end, v_canonica);
     v_created := true;
+  end if;
+
+  -- CREADOR (manual gana): fija obra.creador (texto) y reemplaza el vínculo de ESE rol por el del usuario.
+  if v_creador is not null then
+    update obra set creador = v_creador where id = v_obra_id;
+    select id into v_persona_id from persona where lower(nombre) = lower(v_creador) and rol in ('creador','ambos') limit 1;
+    if v_persona_id is null then
+      v_persona_id := gen_random_uuid()::text;
+      insert into persona (id, nombre, rol) values (v_persona_id, v_creador, 'creador');
+    end if;
+    delete from obra_creador where obra_id = v_obra_id and rol_credito = v_rol;
+    insert into obra_creador (obra_id, persona_id, rol_credito)
+      values (v_obra_id, v_persona_id, v_rol) on conflict do nothing;
+  end if;
+
+  -- GÉNEROS (manual gana): un set NO vacío REEMPLAZA las etiquetas de taxonomía 'genero' de la obra
+  -- (additivo si no tenía; corrige si tenía). Reusa la etiqueta existente por nombre/slug; no duplica.
+  if v_generos is not null and jsonb_typeof(v_generos) = 'array' and jsonb_array_length(v_generos) > 0 then
+    delete from obra_etiqueta oe using etiqueta e
+      where oe.obra_id = v_obra_id and oe.etiqueta_id = e.id and e.taxonomia = 'genero';
+    for v_gen in select jsonb_array_elements_text(v_generos) loop
+      v_gen := nullif(trim(v_gen), '');
+      continue when v_gen is null;
+      select id into v_etq_id from etiqueta where nombre = v_gen;
+      if v_etq_id is null then
+        v_etq_id := gen_random_uuid()::text;
+        insert into etiqueta (id, nombre, taxonomia, origen) values (v_etq_id, v_gen, 'genero', 'manual');
+      end if;
+      insert into obra_etiqueta (obra_id, etiqueta_id) values (v_obra_id, v_etq_id) on conflict do nothing;
+    end loop;
   end if;
 
   -- A-07: re-consumo de obra fija sin tiempo introducido hereda la canónica.

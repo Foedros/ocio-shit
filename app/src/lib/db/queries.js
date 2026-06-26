@@ -19,6 +19,35 @@ export const FECHA_TIPO_LABELS = { fecha_visionado: 'Fecha real (visionado)', fe
 // A-07 (migracion.md §3.3): duración fija (canónica = por-entrada) vs variable (solo por-entrada).
 export const DURACION_FIJA = new Set(['pelicula', 'libro', 'comic']);
 
+// Rol del CREADOR por categoría (= corpus enriquecido: FA=director, Steam=developer).
+export const ROL_CREADOR = {
+  pelicula: 'director', serie: 'director', videojuego: 'developer',
+  libro: 'autor', comic: 'autor', ocio_libre: 'creador'
+};
+export const ROL_CREADOR_LABEL = {
+  pelicula: 'Director', serie: 'Director', videojuego: 'Developer',
+  libro: 'Autor', comic: 'Autor', ocio_libre: 'Creador'
+};
+
+// Géneros: slug ASCII (= taxonomía unificada tmdb/steam) ↔ etiqueta en español. slugifyGenero
+// normaliza igual que etiquetas.js (NFD, sin acentos) → "Acción"/"acción" caen en el slug `accion`
+// y REUSAN la etiqueta existente, no duplican.
+export const GENERO_LABELS = {
+  accion: 'Acción', aventura: 'Aventura', animacion: 'Animación', comedia: 'Comedia',
+  'ciencia-ficcion': 'Ciencia ficción', belica: 'Bélica', musica: 'Música', simulacion: 'Simulación',
+  'pelicula-de-tv': 'Película de TV', 'multijugador-masivo': 'Multijugador masivo', rol: 'Rol'
+};
+export const generoLabel = (s) =>
+  GENERO_LABELS[s] || (s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, ' ') : s);
+export function slugifyGenero(s) {
+  return String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
 function uuid() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   // Deterministic-enough fallback (node test path always has crypto.randomUUID).
@@ -55,6 +84,13 @@ export function addEntry(adapter, { obra = {}, entrada = {} } = {}) {
     entrada.duracion_min != null && entrada.duracion_min !== ''
       ? Math.max(0, Math.trunc(Number(entrada.duracion_min)))
       : null;
+  // METADATOS DE OBRA a mano (mismo contrato que la RPC ocio_add_entry): creador (texto) + géneros
+  // (slugs). Regla de conflicto: manual gana, no a ciegas (el form pre-rellena); vacío = no-op.
+  const creador = obra.creador != null ? String(obra.creador).trim() : '';
+  const rol = ROL_CREADOR[categoria];
+  const generos = Array.isArray(obra.generos)
+    ? obra.generos.map((g) => slugifyGenero(g)).filter(Boolean)
+    : [];
 
   adapter.exec('BEGIN IMMEDIATE');
   try {
@@ -68,8 +104,21 @@ export function addEntry(adapter, { obra = {}, entrada = {} } = {}) {
       "SELECT id FROM obra WHERE clave_dedup = lower(?) || '|' || ? || '|' || coalesce(CAST(? AS INTEGER), '')",
       [titulo, categoria, anio]
     );
+    let yearFill = null;
+    if (!existing && anio != null) {
+      // Year-fill (red de seguridad create-vs-link): una sola obra SIN año del mismo título+categoría
+      // → rellena su año en vez de duplicar.
+      const yl = adapter.all(
+        'SELECT id FROM obra WHERE lower(titulo) = lower(?) AND categoria = ? AND anio_obra IS NULL',
+        [titulo, categoria]
+      );
+      if (yl.length === 1) yearFill = yl[0].id;
+    }
     if (existing) {
       obraId = existing.id;
+    } else if (yearFill) {
+      obraId = yearFill;
+      adapter.run('UPDATE obra SET anio_obra = ?, decada = ? WHERE id = ?', [anio, Math.floor(anio / 10) * 10, obraId]);
     } else {
       obraId = uuid();
       // A-07: for fixed-duration works the value is canonical (= per-entry); variable works
@@ -80,6 +129,37 @@ export function addEntry(adapter, { obra = {}, entrada = {} } = {}) {
         [obraId, titulo, categoria, anio, anio != null ? Math.floor(anio / 10) * 10 : null, canonica]
       );
       obraCreated = true;
+    }
+
+    // CREADOR (manual gana): fija obra.creador y reemplaza el vínculo de ESE rol_credito.
+    if (creador) {
+      adapter.run('UPDATE obra SET creador = ? WHERE id = ?', [creador, obraId]);
+      let personaId = adapter.get(
+        "SELECT id FROM persona WHERE lower(nombre) = lower(?) AND rol IN ('creador','ambos') LIMIT 1",
+        [creador]
+      )?.id;
+      if (!personaId) {
+        personaId = uuid();
+        adapter.run('INSERT INTO persona (id, nombre, rol) VALUES (?, ?, ?)', [personaId, creador, 'creador']);
+      }
+      adapter.run('DELETE FROM obra_creador WHERE obra_id = ? AND rol_credito = ?', [obraId, rol]);
+      adapter.run('INSERT OR IGNORE INTO obra_creador (obra_id, persona_id, rol_credito) VALUES (?, ?, ?)', [obraId, personaId, rol]);
+    }
+
+    // GÉNEROS (manual gana): set NO vacío reemplaza las etiquetas de taxonomía 'genero'; reusa por slug.
+    if (generos.length) {
+      adapter.run(
+        "DELETE FROM obra_etiqueta WHERE obra_id = ? AND etiqueta_id IN (SELECT id FROM etiqueta WHERE taxonomia = 'genero')",
+        [obraId]
+      );
+      for (const slug of generos) {
+        let etqId = adapter.get('SELECT id FROM etiqueta WHERE nombre = ?', [slug])?.id;
+        if (!etqId) {
+          etqId = uuid();
+          adapter.run("INSERT INTO etiqueta (id, nombre, taxonomia, origen) VALUES (?, ?, 'genero', 'manual')", [etqId, slug]);
+        }
+        adapter.run('INSERT OR IGNORE INTO obra_etiqueta (obra_id, etiqueta_id) VALUES (?, ?)', [obraId, etqId]);
+      }
     }
 
     // A-07: a re-watch of a fixed-duration work with no entered time inherits the canonical.

@@ -174,6 +174,10 @@ export function closeDetail() {
   detail.set(null);
 }
 
+// Create-vs-link + datalist de géneros para el registro rápido (lecturas RLS-scoped).
+export const lookupObra = (titulo, categoria, anio) => data.lookupObra(titulo, categoria, anio);
+export const listGeneros = () => data.listGeneros();
+
 // ── Writes (Postgres arbitrates; RPCs are atomic + RLS-scoped) ────────────────
 export async function addEntryAction(payload) {
   busy.set('Registrando…');

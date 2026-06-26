@@ -152,6 +152,59 @@ const delAfter = counts(A);
 check('borrar última: -1 obra y -1 entrada', delAfter.obra === delBefore.obra - 1 && delAfter.entrada === delBefore.entrada - 1, `(${delBefore.obra}/${delBefore.entrada} -> ${delAfter.obra}/${delAfter.entrada})`);
 check('borrar: integridad ok, 0 FK', integrityCheck(A).ok && foreignKeyViolations(A) === 0);
 
+// ════ METADATOS DE OBRA A MANO (creador / género / año) + create-vs-link ════
+console.log('\n[metadatos a mano]');
+
+// alta NUEVA con creador + géneros + año
+const m1 = addEntry(A, {
+  obra: { titulo: 'Peli Con Meta ZZZ', categoria: 'pelicula', anio_obra: 1999, creador: 'Lana Wachowski', generos: ['Acción', 'Ciencia Ficción'] },
+  entrada: { fecha: '2026-06-26', valoracion: 9 }
+});
+const mo = getObra(A, m1.obraId).obra;
+check('meta: obra.creador="Lana Wachowski" + decada 1990', mo.creador === 'Lana Wachowski' && mo.decada === 1990);
+const mc = A.all('SELECT p.nombre, oc.rol_credito FROM obra_creador oc JOIN persona p ON p.id = oc.persona_id WHERE oc.obra_id = ?', [m1.obraId]);
+check('meta: obra_creador rol=director (cine)', mc.length === 1 && mc[0].rol_credito === 'director' && mc[0].nombre === 'Lana Wachowski');
+const mg = A.all("SELECT e.nombre FROM obra_etiqueta oe JOIN etiqueta e ON e.id = oe.etiqueta_id WHERE oe.obra_id = ? AND e.taxonomia = 'genero' ORDER BY e.nombre", [m1.obraId]);
+check('meta: géneros slug normalizados (accion, ciencia-ficcion)', mg.map((x) => x.nombre).join(',') === 'accion,ciencia-ficcion');
+
+// rol por categoría: videojuego→developer, libro→autor
+const m2 = addEntry(A, { obra: { titulo: 'Juego Meta ZZZ', categoria: 'videojuego', creador: 'Team Cherry', generos: ['Aventura'] }, entrada: {} });
+check('meta: rol developer (videojuego)', A.get('SELECT rol_credito r FROM obra_creador WHERE obra_id = ?', [m2.obraId]).r === 'developer');
+const m3 = addEntry(A, { obra: { titulo: 'Libro Meta ZZZ', categoria: 'libro', creador: 'Brandon Sanderson' }, entrada: {} });
+check('meta: rol autor (libro)', A.get('SELECT rol_credito r FROM obra_creador WHERE obra_id = ?', [m3.obraId]).r === 'autor');
+
+// género REUSA la etiqueta existente por slug (no duplica)
+const accionId = A.get("SELECT id FROM etiqueta WHERE nombre = 'accion'").id;
+const m4 = addEntry(A, { obra: { titulo: 'Otra Accion ZZZ', categoria: 'pelicula', anio_obra: 2001, generos: ['acción'] }, entrada: {} });
+check('meta: "acción" reusa la etiqueta accion (no duplica)',
+  A.all("SELECT id FROM etiqueta WHERE nombre = 'accion'").length === 1 &&
+    A.get('SELECT etiqueta_id e FROM obra_etiqueta WHERE obra_id = ?', [m4.obraId]).e === accionId);
+
+// create-vs-link: misma obra (mismo año) con creador NUEVO → manual gana (reemplaza el vínculo)
+const m5 = addEntry(A, { obra: { titulo: 'peli con meta zzz', categoria: 'pelicula', anio_obra: 1999, creador: 'Hermanas Wachowski' }, entrada: {} });
+check('link: reusa la obra (no +obra)', m5.obraId === m1.obraId && m5.obraCreated === false);
+const dirRows = A.all("SELECT p.nombre FROM obra_creador oc JOIN persona p ON p.id = oc.persona_id WHERE oc.obra_id = ? AND oc.rol_credito = 'director'", [m1.obraId]);
+check('link: creador manual REEMPLAZA (1 director = nuevo nombre) + texto actualizado',
+  dirRows.length === 1 && dirRows[0].nombre === 'Hermanas Wachowski' && getObra(A, m1.obraId).obra.creador === 'Hermanas Wachowski');
+
+// género set NO vacío REEMPLAZA; vacío = NO-OP (no borra)
+addEntry(A, { obra: { titulo: 'peli con meta zzz', categoria: 'pelicula', anio_obra: 1999, generos: ['Drama'] }, entrada: {} });
+check('link: set de género no vacío REEMPLAZA (solo drama)',
+  A.all("SELECT e.nombre FROM obra_etiqueta oe JOIN etiqueta e ON e.id = oe.etiqueta_id WHERE oe.obra_id = ? AND e.taxonomia = 'genero'", [m1.obraId]).map((x) => x.nombre).join(',') === 'drama');
+addEntry(A, { obra: { titulo: 'peli con meta zzz', categoria: 'pelicula', anio_obra: 1999 }, entrada: { nota: 'reconsumo sin tocar meta' } });
+check('no-op: reconsumo sin meta conserva género (drama) y creador',
+  A.all("SELECT 1 FROM obra_etiqueta oe JOIN etiqueta e ON e.id = oe.etiqueta_id WHERE oe.obra_id = ? AND e.taxonomia = 'genero'", [m1.obraId]).length === 1 &&
+    getObra(A, m1.obraId).obra.creador === 'Hermanas Wachowski');
+
+// YEAR-FILL (create-vs-link): obra sin año + alta con año → reusa y rellena (no duplica)
+const yfNew = addEntry(A, { obra: { titulo: 'Sin Anio ZZZ', categoria: 'pelicula' }, entrada: {} });
+const obraCountPre = counts(A).obra;
+const yf2 = addEntry(A, { obra: { titulo: 'Sin Anio ZZZ', categoria: 'pelicula', anio_obra: 2010 }, entrada: {} });
+check('year-fill: reusa la obra sin año (no +obra)', yf2.obraId === yfNew.obraId && counts(A).obra === obraCountPre);
+check('year-fill: rellena anio=2010 + decada=2010', getObra(A, yf2.obraId).obra.anio_obra === 2010 && getObra(A, yf2.obraId).obra.decada === 2010);
+
+check('meta: integridad ok, 0 FK tras escrituras', integrityCheck(A).ok && foreignKeyViolations(A) === 0);
+
 A.close();
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}\n`);
 process.exit(failures === 0 ? 0 : 1);

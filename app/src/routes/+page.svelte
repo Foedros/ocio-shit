@@ -116,7 +116,7 @@
   </button>
 {/if}
 
-<Sheet open={showAdd} title="Nueva entrada" eyebrow="Registro rápido · ≈ 7 s" onclose={() => (showAdd = false)}>
+<Sheet open={showAdd} title="Nueva entrada" eyebrow="Registro rápido" onclose={() => (showAdd = false)}>
   <QuickAddForm onsaved={() => (showAdd = false)} />
 </Sheet>
 
