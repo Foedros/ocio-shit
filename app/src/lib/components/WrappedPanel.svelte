@@ -149,7 +149,7 @@
           <!-- tap zones -->
           <button class="tap left" aria-label="anterior" onclick={prev}></button>
           <button class="tap right" aria-label="siguiente" onclick={next}></button>
-          <button class="closeb" aria-label="cerrar" onclick={toArchivo}>✕</button>
+          <button class="closeb" aria-label="cerrar" onclick={toArchivo}><span class="x">✕</span></button>
 
           <div class="story-in">
             {#if storyIdx === 0}
@@ -293,7 +293,15 @@
   .tap { position: absolute; top: 0; bottom: 0; z-index: 3; background: none; border: none; cursor: pointer; padding: 0; }
   .tap.left { left: 0; width: 33%; }
   .tap.right { left: 33%; right: 0; width: 67%; }
-  .closeb { position: absolute; top: 28px; right: 16px; z-index: 5; background: rgba(11, 10, 8, 0.4); border: none; color: var(--ink-2); width: 26px; height: 26px; border-radius: 50%; cursor: pointer; font-size: 12px; }
+  /* Cerrar: hit target cómodo de 44×44 (guía táctil) con un chip visible más pequeño y un glifo
+     mayor. z-index 6 (sobre las tap zones z3 y la pbar z4) → recibe el toque en SU esquina; top 22
+     deja libre la barra de progreso (top 14 + 3px). El resto de la zona derecha sigue avanzando. */
+  .closeb { position: absolute; top: 22px; right: 8px; z-index: 6; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: none; border: none; padding: 0; margin: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .closeb .x { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: rgba(11, 10, 8, 0.5); border: 1px solid rgba(242, 166, 90, 0.18); color: var(--ink-2); font-size: 17px; line-height: 1; transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.12s; }
+  .closeb:hover .x { background: rgba(11, 10, 8, 0.72); color: var(--ink); border-color: rgba(242, 166, 90, 0.42); }
+  .closeb:focus-visible { outline: none; }
+  .closeb:focus-visible .x { border-color: var(--gold); color: var(--ink); }
+  .closeb:active .x { transform: scale(0.92); }
   .story-in { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 48px 30px 32px; pointer-events: none; }
   .story-in :global(button) { pointer-events: auto; }
   .mt-auto { margin-top: auto; }
