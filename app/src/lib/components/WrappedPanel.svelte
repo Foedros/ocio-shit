@@ -72,6 +72,15 @@
   let cumbreSub = $derived(
     !cumbre ? '' : w.empate > 1 ? `una de tus ${fmt(w.empate)} obras de ${num(cumbre.nota)} este año` : `tu nota más alta de ${w.anio}`
   );
+  // Frase secundaria de la card de géneros construida en JS (no en el markup): así el espacio
+  // alrededor de la "y" es SIEMPRE correcto (Svelte recorta el espacio inicial de los bloques
+  // {#if}, lo que pegaba "Accióny Drama"). Vale para uno, dos o más géneros secundarios.
+  let genSub = $derived.by(() => {
+    const rest = gen.slice(1, 3).map((g) => genLabel(g?.nombre)).filter(Boolean);
+    if (rest.length === 0) return '';
+    if (rest.length === 1) return `seguido de cerca por ${rest[0]}`;
+    return `seguido de cerca por ${rest[0]} y ${rest[1]}`;
+  });
 </script>
 
 <section class="wrapped">
@@ -181,7 +190,7 @@
             {:else if storyIdx === 3}
               <div class="eyebrow mono">Tu año sonó a</div>
               <div class="gen-top">{genLabel(gen[0]?.nombre)}</div>
-              {#if gen.length > 1}<div class="serif-it">seguido de cerca por {genLabel(gen[1]?.nombre)}{#if gen[2]} y {genLabel(gen[2]?.nombre)}{/if}.</div>{/if}
+              {#if genSub}<div class="serif-it">{genSub}.</div>{/if}
               <div class="gen-chips">
                 {#each gen.slice(0, 5) as g, i}<span class="gchip" style="font-size:{30 - i * 3}px">{genLabel(g.nombre)}</span>{/each}
               </div>
@@ -314,9 +323,12 @@
   .s-portada .serif-it { font-size: 21px; }
   /* volumen */
   .story-in .eyebrow { animation: fadeUp 0.5s both; }
-  .vol-num { display: flex; align-items: flex-end; gap: 10px; margin: 4px 0; }
-  .vol-num .big { font-family: var(--font-display); font-size: 80px; color: var(--ink); font-weight: 500; line-height: 0.82; animation: popIn 0.7s both; }
+  /* line-height 0.9 (antes 0.82) contiene el glifo dentro de su caja, y un margen inferior cómodo
+     separa el número gigante de "una media de X al mes" → no se solapan (2 ó 3 cifras, mismo alto). */
+  .vol-num { display: flex; align-items: flex-end; gap: 10px; margin: 4px 0 14px; }
+  .vol-num .big { font-family: var(--font-display); font-size: 80px; color: var(--ink); font-weight: 500; line-height: 0.9; animation: popIn 0.7s both; }
   .vol-num .u { font-size: 16px; color: var(--ink-2); padding-bottom: 12px; }
+  .vol-num + .serif-it { margin-top: 2px; }
   .story-in.vol { justify-content: center; }
   .vol-list { width: 100%; margin-top: 26px; display: flex; flex-direction: column; gap: 12px; }
   .vrow .vtop { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink); margin-bottom: 5px; align-items: center; }
