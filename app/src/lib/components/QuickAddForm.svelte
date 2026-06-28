@@ -297,9 +297,18 @@
     flex-direction: column;
     gap: 0.25rem;
     flex: 1 1 9rem;
+    min-width: 0;
   }
   .fld.wide {
     flex: 1 1 100%;
+  }
+  /* En móvil, Fecha/Año/Duración a ancho completo (apilados). El <input type=date> nativo de iOS
+     no encoge con flex y se solapaba con "Año de la obra"; apilar lo resuelve de raíz. En escritorio
+     (modal ~560px) siguen lado a lado. */
+  @media (max-width: 700px) {
+    .extra .fld {
+      flex-basis: 100%;
+    }
   }
   .fld .lbl {
     font-family: var(--font-data);

@@ -312,6 +312,10 @@
   .eyebrow.gold { color: var(--label); }
 
   .row { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  /* Sin esto, el histograma de décadas (25 barras, cada una con el min-width de su etiqueta) infla
+     la columna 1fr (grid blowout) y arrastra TODA la fila —reparto incluido— fuera de la pantalla
+     en móvil. min-width:0 ata las tarjetas al ancho del contenedor. */
+  .row > * { min-width: 0; }
   @media (min-width: 640px) {
     .row.split { grid-template-columns: 1.5fr 1fr; align-items: stretch; }
     .row.even { grid-template-columns: 1fr 1fr; }
@@ -392,11 +396,25 @@
 
   .histo { display: flex; align-items: flex-end; gap: 3px; height: 100px; }
   .histo.notes { height: 120px; gap: 5px; }
-  .hbar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 5px; height: 100%; }
+  /* min-width:0 → las 25 barras de décadas se comprimen para caber en el ancho de la tarjeta
+     (si no, la etiqueta de cada barra fija su ancho mínimo y el histograma se desborda). */
+  .hbar { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 5px; height: 100%; }
   .hfill { width: 100%; border-radius: 2px; animation: colGrow 1s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
   .hlab { font-size: 7px; color: var(--ink-3); }
   .histo.notes .hlab { font-size: 9px; }
   .hlab.hot { color: var(--gold); }
+  /* En estrecho, 25 etiquetas de década no caben horizontales → verticales (legibles, sin solape).
+     El histograma de notas (1–10, sólo 10 barras) NO se rota: caben de sobra. */
+  @media (max-width: 700px) {
+    .histo:not(.notes) { height: 92px; padding-bottom: 20px; }
+    .histo:not(.notes) .hlab {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      letter-spacing: 0;
+      line-height: 1;
+      margin-top: 3px;
+    }
+  }
   .note { font-size: 0.78rem; color: var(--ink-2); margin: 12px 0 0; line-height: 1.5; }
 
   .hbars { display: flex; flex-direction: column; gap: 9px; }
