@@ -7,10 +7,16 @@
   import { onMount } from 'svelte';
   import { hall } from '$lib/db/supabase-data.js';
 
+  // initialMode: el drawer móvil entra por "Hall of Fame" o "Hall of Shame" (dos accesos al MISMO
+  // componente). El toggle interno sigue mandando; solo se sincroniza cuando el padre cambia el modo.
+  let { initialMode = 'fame' } = $props();
   let loading = $state(true);
   let error = $state(null);
   let h = $state(null);
-  let mode = $state('fame'); // 'fame' | 'shame'
+  let mode = $state(initialMode); // 'fame' | 'shame'
+  $effect(() => {
+    mode = initialMode;
+  });
 
   onMount(load);
   async function load() {

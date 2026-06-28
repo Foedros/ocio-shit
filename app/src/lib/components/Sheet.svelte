@@ -23,6 +23,9 @@
 {/if}
 
 <style>
+  /* MÓVIL (≤700px): el formulario ocupa TODA la pantalla (no panel flotante). El scroll-lock del
+     fondo lo aplica +page.svelte cuando está abierto. DESKTOP (≥701px): modal centrado (igual que
+     antes — no cambia). */
   .scrim {
     position: fixed;
     inset: 0;
@@ -30,44 +33,43 @@
     background: color-mix(in srgb, #000 58%, transparent);
     backdrop-filter: blur(2px);
     display: flex;
-    align-items: flex-end;
-    justify-content: center;
+    align-items: stretch;
+    justify-content: stretch;
     animation: fade 0.2s ease;
   }
   .sheet {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-bottom: none;
-    border-radius: var(--radius) var(--radius) 0 0;
+    background: var(--bg);
+    border: none;
+    border-radius: 0;
     width: 100%;
-    max-width: 560px;
-    max-height: 90vh;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
     overflow: auto;
-    padding: 0.6rem 1.3rem 2rem;
-    box-shadow: var(--shadow-raised, 0 -8px 30px rgba(0, 0, 0, 0.5));
-    animation: sheetUp 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+    overscroll-behavior: contain;
+    padding: 1rem 1.1rem 2.4rem;
+    animation: sheetUp 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
-  @media (min-width: 640px) {
+  @media (min-width: 701px) {
     .scrim {
       align-items: center;
+      justify-content: center;
     }
     .sheet {
+      background: var(--surface);
+      border: 1px solid var(--line);
       border-radius: var(--radius);
-      border-bottom: 1px solid var(--line);
+      width: 100%;
+      max-width: 560px;
+      height: auto;
+      max-height: 90vh;
+      padding: 0.6rem 1.3rem 2rem;
+      box-shadow: var(--shadow-raised, 0 -8px 30px rgba(0, 0, 0, 0.5));
       animation: scaleIn 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
   }
   .grip {
-    width: 38px;
-    height: 4px;
-    border-radius: 999px;
-    background: var(--line-strong);
-    margin: 0.2rem auto 0.8rem;
-  }
-  @media (min-width: 640px) {
-    .grip {
-      display: none;
-    }
+    display: none;
   }
   header {
     display: flex;
@@ -75,6 +77,17 @@
     justify-content: space-between;
     gap: 0.5rem;
     margin-bottom: 1rem;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    padding-top: 0.2rem;
+    z-index: 1;
+  }
+  @media (min-width: 701px) {
+    header {
+      position: static;
+      background: none;
+    }
   }
   .eyebrow {
     font-family: var(--font-data);

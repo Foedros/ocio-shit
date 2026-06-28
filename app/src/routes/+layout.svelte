@@ -130,4 +130,19 @@
     margin: 0 auto;
     padding: 1rem 1rem 4rem;
   }
+
+  /* ── MÓVIL (≤700px): el chasis Design toma el control ──
+     La cabecera de marca se sustituye por la cabecera móvil (hamburguesa/título/avatar) que vive
+     en +page.svelte; el ancho es fijo y el scroll SOLO vertical (clip horizontal defensivo). El
+     escritorio (≥701px) NO cambia. */
+  @media (max-width: 700px) {
+    .bar {
+      display: none;
+    }
+    main {
+      max-width: 100%;
+      padding: 0;
+      overflow-x: clip;
+    }
+  }
 </style>
