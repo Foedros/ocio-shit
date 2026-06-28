@@ -232,6 +232,19 @@ export function deleteEntry(adapter, entradaId) {
   }
 }
 
+/**
+ * Marca/desmarca una SERIE como "en curso" (nota provisional). Espejo de la RPC ocio_set_en_curso:
+ * SOLO categoría='serie' (en otras categorías es no-op seguro y devuelve ok:false). El flag es
+ * ortogonal a las métricas (nada lo lee para excluir).
+ */
+export function setEnCurso(adapter, obraId, on) {
+  const o = adapter.get('SELECT categoria FROM obra WHERE id = ?', [obraId]);
+  if (!o) return { ok: false, reason: 'no_existe' };
+  if (o.categoria !== 'serie') return { ok: false, reason: 'solo_series', en_curso: false };
+  adapter.run('UPDATE obra SET en_curso = ? WHERE id = ?', [on ? 1 : 0, obraId]);
+  return { ok: true, en_curso: !!on };
+}
+
 /** Filtered list of entradas (joined with their obra). Returns minimal display rows. */
 export function listEntries(adapter, { categoria, origen, fecha_tipo, search, limit = 6000 } = {}) {
   const where = [];

@@ -84,6 +84,9 @@ create table obra (
   pais_origen            text,
   creador                text,
   saga                   text,
+  -- "en curso" (consumo subjetivo en marcha; nota PROVISIONAL). SOLO series; ORTOGONAL a métricas
+  -- (no excluye de nada — solo indicador visible). Se asigna vía RPC ocio_set_en_curso (valida serie).
+  en_curso               boolean not null default false,
   formato_habitual       text check (formato_habitual in
                             ('cine','streaming','fisico','papel','ebook','audiolibro',
                              'consola','pc','movil','otro')),

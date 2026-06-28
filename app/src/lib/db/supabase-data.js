@@ -64,11 +64,12 @@ function mapEntry(r) {
     valoracion: r.valoracion,
     num_reconsumo: r.num_reconsumo,
     duracion_min: r.duracion_min,
+    en_curso: !!r.obra?.en_curso, // serie en curso (nota provisional) — indicador, no afecta métricas
     origen: r.metadata?.origen ?? null,
     fecha_tipo: r.metadata?.fecha_tipo ?? null
   };
 }
-const ENTRY_SELECT = 'id, obra_id, fecha, estado, valoracion, num_reconsumo, duracion_min, metadata, obra!inner(titulo, categoria)';
+const ENTRY_SELECT = 'id, obra_id, fecha, estado, valoracion, num_reconsumo, duracion_min, metadata, obra!inner(titulo, categoria, en_curso)';
 
 // PostgREST caps every response at `max-rows` (1000 on Supabase). Paginate with .range() so the
 // archive can hold all ~3.8k entries. buildQuery() must return a FRESH builder each page (builders
@@ -86,12 +87,13 @@ async function fetchAll(buildQuery, { max = 100000, page = 1000 } = {}) {
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
-export async function listEntries({ categoria, origen, fecha_tipo, search, limit = 6000 } = {}) {
+export async function listEntries({ categoria, origen, fecha_tipo, search, en_curso, limit = 6000 } = {}) {
   const build = () => {
     let q = supabase.from('entrada').select(ENTRY_SELECT);
     if (categoria) q = q.eq('obra.categoria', categoria);
     if (origen) q = q.eq('metadata->>origen', origen);
     if (fecha_tipo) q = q.eq('metadata->>fecha_tipo', fecha_tipo);
+    if (en_curso) q = q.eq('obra.en_curso', true); // solo series que tengo a medias (para retomarlas)
     if (search && search.trim()) q = q.ilike('obra.titulo', `%${search.trim().replace(/[%_]/g, (c) => '\\' + c)}%`);
     return q.order('fecha', { ascending: false, nullsFirst: false }).order('id', { ascending: true });
   };
@@ -228,6 +230,12 @@ export async function setCanon(entradaId, on, { titulo, porQue } = {}) {
   });
   fail(error, 'setCanon');
   return data;
+}
+// Marca/desmarca una SERIE como "en curso" (nota provisional). RPC INVOKER; solo aplica a series.
+export async function setEnCurso(obraId, on) {
+  const { data, error } = await supabase.rpc('ocio_set_en_curso', { p_obra_id: obraId, p_on: on });
+  fail(error, 'setEnCurso');
+  return data; // { ok, en_curso?, reason? }
 }
 
 // Timeline (pantalla 04): macro = volumen+mezcla por AÑO DE ENTRADA (rápido, una RPC); el detalle

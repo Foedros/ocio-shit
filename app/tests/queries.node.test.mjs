@@ -9,6 +9,7 @@ import { applySchema, importAll, integrityCheck, foreignKeyViolations, counts } 
 import {
   addEntry,
   deleteEntry,
+  setEnCurso,
   listEntries,
   listObras,
   getEntry,
@@ -204,6 +205,19 @@ check('year-fill: reusa la obra sin año (no +obra)', yf2.obraId === yfNew.obraI
 check('year-fill: rellena anio=2010 + decada=2010', getObra(A, yf2.obraId).obra.anio_obra === 2010 && getObra(A, yf2.obraId).obra.decada === 2010);
 
 check('meta: integridad ok, 0 FK tras escrituras', integrityCheck(A).ok && foreignKeyViolations(A) === 0);
+
+// ════ "EN CURSO" (solo series) ════
+console.log('\n[en curso]');
+const ec1 = addEntry(A, { obra: { titulo: 'Serie En Curso ZZZ', categoria: 'serie' }, entrada: { valoracion: 7 } });
+const ecSet = setEnCurso(A, ec1.obraId, true);
+check('en_curso: serie se marca (ok)', ecSet.ok === true && ecSet.en_curso === true);
+check('en_curso: persistido en la obra', A.get('SELECT en_curso FROM obra WHERE id = ?', [ec1.obraId]).en_curso === 1);
+check('en_curso: desmarcar limpio', setEnCurso(A, ec1.obraId, false).ok && A.get('SELECT en_curso FROM obra WHERE id = ?', [ec1.obraId]).en_curso === 0);
+const ecP = addEntry(A, { obra: { titulo: 'Peli No En Curso ZZZ', categoria: 'pelicula', anio_obra: 2020 }, entrada: { valoracion: 7 } });
+const ecPset = setEnCurso(A, ecP.obraId, true);
+check('en_curso: película RECHAZADA (solo_series, sin tocar)', ecPset.ok === false && ecPset.reason === 'solo_series' && A.get('SELECT en_curso FROM obra WHERE id = ?', [ecP.obraId]).en_curso === 0);
+check('en_curso: obra inexistente → ok:false', setEnCurso(A, 'no-existe', true).ok === false);
+check('en_curso: la serie sigue contando (su entrada intacta, valoración 7)', getEntry(A, ec1.entradaId).valoracion === 7 && integrityCheck(A).ok);
 
 A.close();
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}\n`);

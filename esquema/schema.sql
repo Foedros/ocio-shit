@@ -46,6 +46,8 @@ CREATE TABLE obra (
     pais_origen            TEXT,
     creador                TEXT,
     saga                   TEXT,
+    -- "en curso": serie que aún veo a trozos, nota PROVISIONAL. SOLO series; ortogonal a métricas.
+    en_curso               INTEGER NOT NULL DEFAULT 0 CHECK (en_curso IN (0,1)),
     formato_habitual       TEXT CHECK (formato_habitual IN
                               ('cine','streaming','fisico','papel','ebook','audiolibro',
                                'consola','pc','movil','otro')),

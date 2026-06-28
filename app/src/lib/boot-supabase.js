@@ -264,6 +264,27 @@ export async function setCanonAction(entradaId, on) {
   }
 }
 
+// "En curso" (solo series): marca/desmarca obra.en_curso y recarga el detalle abierto + el Diario.
+export async function setEnCursoAction(obraId, on, { entradaId } = {}) {
+  busy.set(on ? 'Marcando en curso…' : 'Quitando…');
+  try {
+    const res = await data.setEnCurso(obraId, on);
+    if (!res?.ok) {
+      showToast(res?.reason === 'solo_series' ? 'Solo las series pueden estar "en curso".' : 'No se pudo marcar', 'error');
+      return res;
+    }
+    if (entradaId) await openEntryDetail(entradaId); else await openObraDetail(obraId);
+    await refreshArchive(); // actualiza badge + filtro
+    showToast(on ? 'Marcada en curso' : 'Ya no está en curso');
+    return res;
+  } catch (err) {
+    logEvent('error', `No se pudo marcar en curso: ${err.message}`);
+    showToast('No se pudo marcar', 'error');
+  } finally {
+    busy.set(null);
+  }
+}
+
 // ── Colecciones — READ (Stage 3 step 2). Write/materialize llega al cerrar Stage 3. ──────────
 export async function refreshColecciones() {
   try {

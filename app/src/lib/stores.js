@@ -34,7 +34,7 @@ export const displayName = derived(auth, ($a) => {
 // Sprint 2 — multi-tab role + archive view
 export const role = writable('init'); // 'leader' | 'follower' | 'init'
 export const archiveEntries = writable([]); // current filtered list of entradas
-export const archiveFilters = writable({ categoria: '', origen: '', fecha_tipo: '', search: '' });
+export const archiveFilters = writable({ categoria: '', origen: '', fecha_tipo: '', search: '', en_curso: false });
 export const filterOpts = writable({ categorias: [], origenes: [], fecha_tipos: [] });
 export const detail = writable(null); // { kind:'obra'|'entrada', data } selected for the detail panel
 export const colecciones = writable([]); // list of collections with n_obras

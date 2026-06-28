@@ -32,6 +32,14 @@
       <option value="fecha_visionado">Fecha real (visionado)</option>
       <option value="fecha_voto">Fecha de voto (aprox.)</option>
     </select>
+    <button
+      type="button"
+      class="encurso-filter"
+      class:on={$archiveFilters.en_curso}
+      aria-pressed={$archiveFilters.en_curso}
+      onclick={() => setFilters({ en_curso: !$archiveFilters.en_curso })}
+      title="Ver solo las series que tienes a medias, para retomarlas"
+    >◐ En curso</button>
   </div>
 </div>
 
@@ -53,6 +61,7 @@
           <span class="meta">
             <span class="dot" style="background:{col(it.categoria).c}"></span>
             <span class="cat" style="color:{col(it.categoria).tint}">{label(CATEGORIA_LABELS, it.categoria)}</span>
+            {#if it.en_curso}<span class="encurso">EN CURSO</span>{/if}
             <span class="sep">·</span>
             <span class="date">{fmtFecha(it.fecha)}</span>
             <span class="origen">{label(ORIGEN_LABELS, it.origen)}</span>
@@ -201,6 +210,38 @@
   }
   .voto {
     color: var(--gold);
+  }
+  .encurso-filter {
+    flex: 0 0 auto;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    border-radius: 10px;
+    padding: 0.55rem 0.8rem;
+    font: inherit;
+    font-family: var(--font-data);
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .encurso-filter:hover {
+    border-color: #7fb2b8;
+    color: #7fb2b8;
+  }
+  .encurso-filter.on {
+    border-color: #7fb2b8;
+    color: #7fb2b8;
+    background: color-mix(in srgb, #7fb2b8 14%, var(--surface-2));
+  }
+  .meta .encurso {
+    color: #7fb2b8;
+    border: 1px solid color-mix(in srgb, #7fb2b8 36%, transparent);
+    background: color-mix(in srgb, #7fb2b8 12%, transparent);
+    border-radius: var(--radius-pill, 999px);
+    padding: 0.02rem 0.34rem;
+    font-size: 0.58rem;
+    letter-spacing: 0.05em;
+    flex: 0 0 auto;
   }
   .val {
     flex: 0 0 auto;

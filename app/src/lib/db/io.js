@@ -79,6 +79,21 @@ function insertableColumns(adapter, table) {
   const cols = adapter.all(`PRAGMA table_xinfo(${table})`);
   return cols.filter((c) => Number(c.hidden) === 0).map((c) => c.name);
 }
+// notnull + default por columna, para rellenar columnas NOT NULL ausentes en exports ANTIGUOS
+// (p. ej. obra.en_curso añadida después): se usa el DEFAULT en vez de NULL (que rompería el insert).
+function columnDefaults(adapter, table) {
+  const m = {};
+  for (const c of adapter.all(`PRAGMA table_xinfo(${table})`)) {
+    if (Number(c.hidden) !== 0) continue;
+    m[c.name] = { notnull: Number(c.notnull) === 1, dflt: c.dflt_value };
+  }
+  return m;
+}
+function missingValue(meta) {
+  if (!meta?.notnull || meta.dflt == null) return null;
+  const d = String(meta.dflt).trim();
+  return /^-?\d+(\.\d+)?$/.test(d) ? Number(d) : d.replace(/^'(.*)'$/, '$1');
+}
 
 /**
  * Import every table present in `data` into the DB, in FK-safe order, inside one
@@ -91,11 +106,12 @@ export function importAll(adapter, data, { transaction = true } = {}) {
       const rows = data[key];
       if (!Array.isArray(rows) || rows.length === 0) continue;
       const cols = insertableColumns(adapter, table);
+      const meta = columnDefaults(adapter, table);
       const sql =
         `INSERT INTO ${table} (${cols.join(', ')}) ` +
         `VALUES (${cols.map(() => '?').join(', ')})`;
       const paramRows = rows.map((r) =>
-        cols.map((c) => (r[c] === undefined ? null : r[c]))
+        cols.map((c) => (r[c] === undefined ? missingValue(meta[c]) : r[c]))
       );
       adapter.runMany(sql, paramRows);
     }

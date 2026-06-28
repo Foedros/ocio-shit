@@ -544,6 +544,24 @@ begin
 end;
 $$;
 
+-- Marca/desmarca una SERIE como "EN CURSO" (consumo subjetivo en marcha; nota PROVISIONAL hasta
+-- terminarla). Flag en obra.en_curso. SOLO categoría='serie' (en otras categorías es NO-OP seguro:
+-- devuelve ok=false sin tocar nada). ORTOGONAL a las métricas: ninguna consulta lo lee para excluir,
+-- así que la serie sigue contando en todo; es solo un indicador. SECURITY INVOKER (RLS por owner_id,
+-- no DEFINER), authenticated-only.
+create or replace function ocio_set_en_curso(p_obra_id text, p_on boolean)
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare v_cat text;
+begin
+  select categoria into v_cat from obra where id = p_obra_id;     -- RLS: solo lo del dueño
+  if v_cat is null then return jsonb_build_object('ok', false, 'reason', 'no_existe'); end if;
+  if v_cat <> 'serie' then return jsonb_build_object('ok', false, 'reason', 'solo_series', 'en_curso', false); end if;
+  update obra set en_curso = coalesce(p_on, false) where id = p_obra_id;
+  return jsonb_build_object('ok', true, 'en_curso', coalesce(p_on, false));
+end;
+$$;
+
 -- ── HOME / DASHBOARD (01): el aterrizaje, en UNA RPC ────────────────────────────────────────
 -- Síntesis + puertas. REUTILIZA las RPCs existentes (no recalcula): llama por dentro a
 -- ocio_progresion()/ocio_hall()/ocio_stats() y extrae SOLO los slivers (nivel/clase, cumbre,
@@ -844,6 +862,7 @@ revoke all on function ocio_wrapped_years()         from public, anon;
 revoke all on function ocio_wrapped(integer)        from public, anon;
 revoke all on function ocio_progresion()            from public, anon;
 revoke all on function ocio_set_canon(text, boolean, text, text) from public, anon;
+revoke all on function ocio_set_en_curso(text, boolean) from public, anon;
 revoke all on function ocio_timeline_macro()        from public, anon;
 revoke all on function ocio_timeline_year(integer)  from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
@@ -861,5 +880,6 @@ grant  execute on function ocio_wrapped_years()     to authenticated;
 grant  execute on function ocio_wrapped(integer)    to authenticated;
 grant  execute on function ocio_progresion()        to authenticated;
 grant  execute on function ocio_set_canon(text, boolean, text, text) to authenticated;
+grant  execute on function ocio_set_en_curso(text, boolean) to authenticated;
 grant  execute on function ocio_timeline_macro()    to authenticated;
 grant  execute on function ocio_timeline_year(integer) to authenticated;

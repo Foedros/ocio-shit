@@ -20,7 +20,8 @@
       "metadata": null,
       "clave_dedup": "weapons|pelicula|2025",
       "creado_en": "2026-06-23 22:32:37",
-      "actualizado_en": "2026-06-23 22:32:37"
+      "actualizado_en": "2026-06-23 22:32:37",
+      "en_curso": 0
     },
     {
       "id": "obra-0002",
@@ -40,7 +41,8 @@
       "metadata": null,
       "clave_dedup": "marvel zombies|serie|2025",
       "creado_en": "2026-06-23 22:32:37",
-      "actualizado_en": "2026-06-23 22:32:37"
+      "actualizado_en": "2026-06-23 22:32:37",
+      "en_curso": 0
     },
     {
       "id": "obra-0003",
@@ -60,7 +62,8 @@
       "metadata": "{\"playtime_min\": 129056}",
       "clave_dedup": "league of legends|videojuego|2009",
       "creado_en": "2026-06-23 22:32:37",
-      "actualizado_en": "2026-06-23 22:32:37"
+      "actualizado_en": "2026-06-23 22:32:37",
+      "en_curso": 0
     },
     {
       "id": "obra-0004",
@@ -80,7 +83,8 @@
       "metadata": null,
       "clave_dedup": "dune|libro|1965",
       "creado_en": "2026-06-23 22:32:37",
-      "actualizado_en": "2026-06-23 22:32:37"
+      "actualizado_en": "2026-06-23 22:32:37",
+      "en_curso": 0
     }
   ],
   "entradas": [
@@ -93,7 +97,7 @@
       "clase_tiempo": "electivo",
       "num_reconsumo": 0,
       "es_reconsumo": 0,
-      "valoracion": 7.0,
+      "valoracion": 7,
       "impacto_emocional": null,
       "nota": null,
       "plataforma_id": null,
@@ -153,7 +157,7 @@
       "clase_tiempo": "electivo",
       "num_reconsumo": 1,
       "es_reconsumo": 1,
-      "valoracion": 9.0,
+      "valoracion": 9,
       "impacto_emocional": 8.5,
       "nota": "Relectura.",
       "plataforma_id": null,
@@ -186,14 +190,38 @@
     }
   ],
   "personas": [
-    { "id": "persona-0001", "nombre": "Zach Cregger", "rol": "creador" },
-    { "id": "persona-0002", "nombre": "Frank Herbert", "rol": "creador" },
-    { "id": "persona-0003", "nombre": "Riot Games", "rol": "creador" }
+    {
+      "id": "persona-0001",
+      "nombre": "Zach Cregger",
+      "rol": "creador"
+    },
+    {
+      "id": "persona-0002",
+      "nombre": "Frank Herbert",
+      "rol": "creador"
+    },
+    {
+      "id": "persona-0003",
+      "nombre": "Riot Games",
+      "rol": "creador"
+    }
   ],
   "obra_creador": [
-    { "obra_id": "obra-0001", "persona_id": "persona-0001", "rol_credito": "director" },
-    { "obra_id": "obra-0004", "persona_id": "persona-0002", "rol_credito": "autor" },
-    { "obra_id": "obra-0003", "persona_id": "persona-0003", "rol_credito": "estudio" }
+    {
+      "obra_id": "obra-0001",
+      "persona_id": "persona-0001",
+      "rol_credito": "director"
+    },
+    {
+      "obra_id": "obra-0004",
+      "persona_id": "persona-0002",
+      "rol_credito": "autor"
+    },
+    {
+      "obra_id": "obra-0003",
+      "persona_id": "persona-0003",
+      "rol_credito": "estudio"
+    }
   ],
   "etiquetas": [],
   "colecciones": [],

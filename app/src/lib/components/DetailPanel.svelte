@@ -2,7 +2,7 @@
   import Sheet from './Sheet.svelte';
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
-  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction } from '$lib/boot-supabase.js';
+  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS, generoLabel } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -63,6 +63,7 @@
     <div class="chip-row">
       <span class="dot" style="background:{col(e.categoria).c}"></span>
       <span class="cat" style="color:{col(e.categoria).tint}">{label(CATEGORIA_LABELS, e.categoria)}</span>
+      {#if e.categoria === 'serie' && e.en_curso}<span class="encurso" title="Aún la estás viendo — la nota es provisional">EN CURSO</span>{/if}
       {#if !editing && e.valoracion != null}<span class="rating">{fmtValoracion(e.valoracion)}</span>{/if}
     </div>
 
@@ -83,6 +84,11 @@
           <button class="canon" class:on={e.es_canon} onclick={() => setCanonAction(e.entrada_id, !e.es_canon)} disabled={!!$busy} title="Marca esta obra como un momento que significó algo más allá de la nota">
             {e.es_canon ? '★ Momento canon' : '☆ Marcar canon'}
           </button>
+          {#if e.categoria === 'serie'}
+            <button class="encurso-btn" class:on={e.en_curso} onclick={() => setEnCursoAction(e.obra_id, !e.en_curso, { entradaId: e.entrada_id })} disabled={!!$busy} title="Aún la estás viendo a trozos — la nota es provisional hasta que la termines">
+              {e.en_curso ? '◐ En curso' : '◌ Marcar en curso'}
+            </button>
+          {/if}
         </div>
         <div class="danger">
           {#if !confirming}
@@ -129,8 +135,16 @@
     <div class="chip-row">
       <span class="dot" style="background:{col(o.categoria).c}"></span>
       <span class="cat" style="color:{col(o.categoria).tint}">{label(CATEGORIA_LABELS, o.categoria)}</span>
+      {#if o.categoria === 'serie' && o.en_curso}<span class="encurso" title="Aún la estás viendo — la nota es provisional">EN CURSO</span>{/if}
       {#if o.anio_obra}<span class="sub">{o.anio_obra}</span>{/if}
     </div>
+    {#if $role === 'leader' && o.categoria === 'serie'}
+      <div class="actions-row">
+        <button class="encurso-btn" class:on={o.en_curso} onclick={() => setEnCursoAction(o.id, !o.en_curso)} disabled={!!$busy} title="Aún la estás viendo a trozos — la nota es provisional hasta que la termines">
+          {o.en_curso ? '◐ En curso' : '◌ Marcar en curso'}
+        </button>
+      </div>
+    {/if}
     <dl>
       {#if o.creador}<div><dt>Creador</dt><dd>{o.creador}</dd></div>{/if}
       {#if o.saga}<div><dt>Saga</dt><dd>{o.saga}</dd></div>{/if}
@@ -337,6 +351,39 @@
     background: color-mix(in srgb, var(--gold) 12%, transparent);
   }
   .canon:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* "En curso" — indicador y toggle, tono teal sereno (provisional, no destacado como el oro) */
+  .encurso {
+    font-family: var(--font-data);
+    font-size: 0.58rem;
+    letter-spacing: 0.1em;
+    color: #7fb2b8;
+    border: 1px solid color-mix(in srgb, #7fb2b8 38%, transparent);
+    background: color-mix(in srgb, #7fb2b8 12%, transparent);
+    border-radius: var(--radius-pill);
+    padding: 0.12rem 0.45rem;
+  }
+  .encurso-btn {
+    background: none;
+    border: 1px solid var(--hairline-plus);
+    color: var(--ink-2);
+    border-radius: var(--radius-pill);
+    padding: 0.5rem 1.1rem;
+    cursor: pointer;
+    font: inherit;
+  }
+  .encurso-btn:hover {
+    border-color: #7fb2b8;
+    color: #7fb2b8;
+  }
+  .encurso-btn.on {
+    border-color: #7fb2b8;
+    color: #7fb2b8;
+    background: color-mix(in srgb, #7fb2b8 12%, transparent);
+  }
+  .encurso-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
