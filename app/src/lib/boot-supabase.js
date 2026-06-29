@@ -228,15 +228,21 @@ export async function updateEntryAction(entradaId, fields) {
       showToast('La entrada ya no existe.', 'error');
       return res;
     }
-    // Regla: fecha/duracion cambian agregados/pertenencia (año, tiempo) + num_reconsumo → rematerializar.
-    // valoracion/nota NO rematerializan (puntuar es instantáneo — ideal para puntuar en lote; las
-    // colecciones por nota media se refrescan con "Recalcular" cuando el usuario quiera).
+    // Regla: fecha/duracion cambian agregados/pertenencia (año, tiempo) + num_reconsumo → rematerializar
+    // + refresco completo (la fila puede reordenarse). valoracion/nota NO rematerializan (puntuar en
+    // lote es instantáneo; las colecciones por nota media se refrescan con "Recalcular").
     if (res.fecha_changed || res.duracion_changed) {
       await data.rematerializeAll();
       await refreshColecciones();
+      await refreshArchive();
+    } else {
+      // Solo nota/comentario → PATCH puntual de esa entrada en memoria (sin re-fetch): la lista no se
+      // reconstruye ni pierde la posición de scroll → se puede puntuar en lote sin re-scrollear.
+      archiveEntries.update((list) =>
+        list.map((e) => (e.entrada_id === entradaId ? { ...e, valoracion: fields.valoracion ?? null } : e))
+      );
     }
     await openEntryDetail(entradaId); // recarga el detalle con los valores nuevos
-    await refreshArchive();
     logEvent('ok', 'Entrada actualizada.');
     showToast('Entrada actualizada');
     return res;

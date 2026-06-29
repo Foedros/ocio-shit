@@ -14,6 +14,8 @@
   }
   const label = (map, v) => map[v] ?? v ?? '—';
   const col = (cat) => CAT_COLOR[cat] ?? { c: 'var(--ink-3)', tint: 'var(--ink-2)' };
+  // La lista solo vuelve al principio cuando cambian los FILTROS — no al puntuar una entrada.
+  let filterKey = $derived(JSON.stringify($archiveFilters));
 </script>
 
 <div class="filters">
@@ -52,7 +54,7 @@
     <p class="hint">Ajusta los filtros, o registra una nueva con el botón +.</p>
   </div>
 {:else}
-  <VirtualList items={$archiveEntries} rowHeight={80} key={(it) => it.entrada_id}>
+  <VirtualList items={$archiveEntries} rowHeight={80} key={(it) => it.entrada_id} resetKey={filterKey}>
     {#snippet row(it)}
       <button class="entry" onclick={() => openEntryDetail(it.entrada_id)}>
         <span class="cover" style="--c:{col(it.categoria).c}; --t:{col(it.categoria).tint}">{(it.titulo || '?').trim().charAt(0).toUpperCase()}</span>

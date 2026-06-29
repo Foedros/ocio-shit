@@ -1,7 +1,7 @@
 <script>
   // Windowed virtual list: renders only the visible rows (+overscan), so ~4.000 entries
   // scroll smoothly without ever mounting thousands of DOM nodes.
-  let { items = [], rowHeight = 60, overscan = 8, key = (it) => it.id, row } = $props();
+  let { items = [], rowHeight = 60, overscan = 8, key = (it) => it.id, row, resetKey = undefined } = $props();
 
   let viewport = $state(null);
   let scrollTop = $state(0);
@@ -15,12 +15,26 @@
     return () => ro.disconnect();
   });
 
-  // When the list changes (e.g. a filter narrows it), reset scroll to the top — otherwise a
-  // leftover scrollTop can point past the end of a shorter result set and render blank.
+  // Vuelve al principio SOLO cuando cambia resetKey (los filtros del Diario), NO en cada mutación
+  // de `items`. Así, puntuar una entrada (patch puntual / re-fetch) NO pierde la posición de scroll
+  // — antes el efecto saltaba al top en cualquier cambio del array y había que re-scrollear tras
+  // cada voto.
+  let lastResetKey = $state(resetKey);
   $effect(() => {
-    void items.length;
+    if (resetKey === lastResetKey) return;
+    lastResetKey = resetKey;
     scrollTop = 0;
     if (viewport) viewport.scrollTop = 0;
+  });
+
+  // Seguridad: si la lista se acorta por debajo del scroll actual (p. ej. borrar cerca del final),
+  // ajusta el scroll al máximo válido para no renderizar en blanco — sin saltar al principio.
+  $effect(() => {
+    const maxTop = Math.max(0, items.length * rowHeight - height);
+    if (scrollTop > maxTop) {
+      scrollTop = maxTop;
+      if (viewport) viewport.scrollTop = maxTop;
+    }
   });
 
   let total = $derived(items.length * rowHeight);
