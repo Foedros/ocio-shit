@@ -416,9 +416,18 @@
     flex-direction: column;
     gap: 0.25rem;
     flex: 1 1 9rem;
+    min-width: 0;
   }
   .fld.wide {
     flex: 1 1 100%;
+  }
+  /* En móvil, Fecha/Duración a ancho completo (apilados) — mismo patrón que QuickAddForm: el
+     <input type=date> nativo de iOS no encoge con flex y pisaba el campo de Duración. En escritorio
+     siguen lado a lado. */
+  @media (max-width: 700px) {
+    .grid .fld {
+      flex-basis: 100%;
+    }
   }
   .fld .lbl {
     font-family: var(--font-data);
