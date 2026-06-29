@@ -91,7 +91,7 @@ CREATE TABLE etiqueta (
     id         TEXT PRIMARY KEY,
     nombre     TEXT NOT NULL UNIQUE,
     taxonomia  TEXT CHECK (taxonomia IN ('genero','tema','tono','tecnica','meta')),
-    origen     TEXT NOT NULL DEFAULT 'manual' CHECK (origen IN ('manual','ia')),
+    origen     TEXT NOT NULL DEFAULT 'manual' CHECK (origen IN ('manual','ia','steam','tmdb')),
     color      TEXT
 );
 
@@ -117,7 +117,7 @@ CREATE TABLE logro (
 CREATE TABLE logro_desbloqueado (
     id                 TEXT PRIMARY KEY,
     logro_id           TEXT NOT NULL REFERENCES logro(id) ON DELETE CASCADE,
-    fecha              DATE NOT NULL,
+    fecha              DATE,  -- nullable: se data solo lo reconstruible (§11.13)
     entrada_origen_id  TEXT REFERENCES entrada(id) ON DELETE SET NULL
 );
 
@@ -141,7 +141,7 @@ CREATE TABLE titulo (
 CREATE TABLE titulo_desbloqueado (
     id        TEXT PRIMARY KEY,
     titulo_id TEXT NOT NULL REFERENCES titulo(id) ON DELETE CASCADE,
-    fecha     DATE NOT NULL
+    fecha     DATE  -- nullable: se data solo lo reconstruible (§11.13)
 );
 
 CREATE TABLE perfil_usuario (

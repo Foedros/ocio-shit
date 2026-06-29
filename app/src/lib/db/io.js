@@ -111,7 +111,12 @@ export function importAll(adapter, data, { transaction = true } = {}) {
         `INSERT INTO ${table} (${cols.join(', ')}) ` +
         `VALUES (${cols.map(() => '?').join(', ')})`;
       const paramRows = rows.map((r) =>
-        cols.map((c) => (r[c] === undefined ? missingValue(meta[c]) : r[c]))
+        cols.map((c) => {
+          const v = r[c] === undefined ? missingValue(meta[c]) : r[c];
+          // node:sqlite (y SQLite) no ligan booleanos; Postgres exporta columnas boolean
+          // (p. ej. obra.en_curso) como true/false → se normalizan a 0/1, el formato canónico.
+          return typeof v === 'boolean' ? (v ? 1 : 0) : v;
+        })
       );
       adapter.runMany(sql, paramRows);
     }

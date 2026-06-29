@@ -36,6 +36,8 @@ async function main() {
       for (const k of ['fecha', 'creado_en', 'actualizado_en']) {
         if (rest[k] instanceof Date) rest[k] = rest[k].toISOString();
       }
+      // booleanos (Postgres, p. ej. obra.en_curso) → 0/1, formato canónico SQLite-shaped
+      for (const k in rest) if (typeof rest[k] === 'boolean') rest[k] = rest[k] ? 1 : 0;
       return rest;
     });
   }
@@ -63,14 +65,19 @@ async function main() {
 
   let fail = 0;
   const expect = (label, got, want) => { const ok = got === want; if (!ok) fail++; console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${label}: ${got}${ok ? '' : ` (esperado ${want})`}`); };
+  // Invariante de round-trip = SIN PÉRDIDA: lo recargado en SQLite == lo exportado (dinámico, no
+  // cifras fijas — el corpus crece). origen se cuenta sobre el propio export (metadata es STRING).
+  const sheetsExp = out.entradas.filter((e) => {
+    try { return JSON.parse(e.metadata)?.origen === 'sheets'; } catch { return false; }
+  }).length;
   console.log('\n  Round-trip Supabase → export.json → SQLite:');
-  expect('obras', c.obra, 4242);
-  expect('entradas', c.entrada, 3809);
-  expect('personas', c.persona, 2169);
-  expect('obra_creador', c.obra_creador, 4200);
+  expect('obras', c.obra, out.obras.length);
+  expect('entradas', c.entrada, out.entradas.length);
+  expect('personas', c.persona, out.personas.length);
+  expect('obra_creador', c.obra_creador, out.obra_creador.length);
   expect('integrity_check', integ.ok, true);
   expect('FK violations', fk, 0);
-  expect('origen=sheets (tras round-trip)', A.get("select count(*) n from entrada where json_extract(metadata,'$.origen')='sheets'").n, 447);
+  expect('origen=sheets (round-trip)', A.get("select count(*) n from entrada where json_extract(metadata,'$.origen')='sheets'").n, sheetsExp);
   db.close();
 
   console.log(fail === 0 ? '\n✅ Export portable verificado (round-trip a SQLite sin pérdida).\n' : `\n❌ ${fail} fallo(s) en el round-trip.\n`);
