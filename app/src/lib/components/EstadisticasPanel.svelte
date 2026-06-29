@@ -369,6 +369,24 @@
   .dim-name { font-size: 0.82rem; color: var(--ink); width: 64px; }
   .dim-desc { font-size: 0.78rem; color: var(--ink-2); flex: 1; }
   .dim-val { font-size: 0.86rem; color: var(--ink); width: 42px; text-align: right; }
+  /* ESCRITORIO (≥640px): con el hero en fila (anillo + cuerpo estrecho ~200px), la terna
+     etiqueta·descripción·número NO cabe limpia en una línea (la descripción de 21 caracteres se
+     aplastaba y el número se montaba encima). Solución: rejilla de 2 filas → número alineado a la
+     derecha en la fila de la etiqueta (columna limpia, nunca se solapa) y descripción en su propia
+     línea completa debajo (legible de una sola línea). Móvil (cuerpo full-width, una línea) intacto. */
+  @media (min-width: 640px) {
+    .dim-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      column-gap: 10px;
+      row-gap: 1px;
+      align-items: center;
+    }
+    .dim-row .dot { grid-column: 1; grid-row: 1; }
+    .dim-name { grid-column: 2; grid-row: 1; width: auto; }
+    .dim-val { grid-column: 3; grid-row: 1; }
+    .dim-desc { grid-column: 2 / 4; grid-row: 2; }
+  }
 
   .bignums { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .card.stat { padding: 16px 18px; display: flex; flex-direction: column; justify-content: center; }
