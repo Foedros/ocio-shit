@@ -75,7 +75,10 @@
         {#if fmtDuracion(e.duracion_min)}<div><dt>Duración</dt><dd>{fmtDuracion(e.duracion_min)}</dd></div>{/if}
         <div><dt>Reconsumo</dt><dd>{e.num_reconsumo > 0 ? `sí · #${e.num_reconsumo}` : 'no'}</dd></div>
       </dl>
-      {#if e.nota}<p class="nota">{e.nota}</p>{/if}
+      {#if e.nota}
+        <div class="eyebrow">Nota personal</div>
+        <p class="nota">{e.nota}</p>
+      {/if}
       <button class="link" onclick={() => openObraDetail(e.obra_id)}>Ver la obra y sus entradas →</button>
 
       {#if $role === 'leader'}

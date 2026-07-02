@@ -62,6 +62,7 @@ function mapEntry(r) {
     fecha: r.fecha,
     estado: r.estado,
     valoracion: r.valoracion,
+    nota: r.nota ?? null, // reseña personal (texto libre); se guardaba bien, faltaba en la lectura
     num_reconsumo: r.num_reconsumo,
     duracion_min: r.duracion_min,
     en_curso: !!r.obra?.en_curso, // serie en curso (nota provisional) — indicador, no afecta métricas
@@ -69,7 +70,7 @@ function mapEntry(r) {
     fecha_tipo: r.metadata?.fecha_tipo ?? null
   };
 }
-const ENTRY_SELECT = 'id, obra_id, fecha, estado, valoracion, num_reconsumo, duracion_min, metadata, obra!inner(titulo, categoria, en_curso)';
+const ENTRY_SELECT = 'id, obra_id, fecha, estado, valoracion, nota, num_reconsumo, duracion_min, metadata, obra!inner(titulo, categoria, en_curso)';
 
 // PostgREST caps every response at `max-rows` (1000 on Supabase). Paginate with .range() so the
 // archive can hold all ~3.8k entries. buildQuery() must return a FRESH builder each page (builders

@@ -219,6 +219,10 @@
         {/if}
         <span class="hint">uno o varios · en español · cuentan para la diversidad</span>
       </div>
+      <label class="fld wide">
+        <span class="lbl">Nota personal</span>
+        <input bind:value={nota} placeholder="micro-reseña…" disabled={!canWrite} aria-label="Nota personal" />
+      </label>
     </section>
   {/if}
 
