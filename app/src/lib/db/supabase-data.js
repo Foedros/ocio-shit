@@ -88,13 +88,14 @@ async function fetchAll(buildQuery, { max = 100000, page = 1000 } = {}) {
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
-export async function listEntries({ categoria, origen, fecha_tipo, search, en_curso, limit = 6000 } = {}) {
+export async function listEntries({ categoria, origen, fecha_tipo, search, en_curso, con_resena, limit = 6000 } = {}) {
   const build = () => {
     let q = supabase.from('entrada').select(ENTRY_SELECT);
     if (categoria) q = q.eq('obra.categoria', categoria);
     if (origen) q = q.eq('metadata->>origen', origen);
     if (fecha_tipo) q = q.eq('metadata->>fecha_tipo', fecha_tipo);
     if (en_curso) q = q.eq('obra.en_curso', true); // solo series que tengo a medias (para retomarlas)
+    if (con_resena) q = q.not('nota', 'is', null).neq('nota', ''); // solo entradas con reseña personal
     if (search && search.trim()) q = q.ilike('obra.titulo', `%${search.trim().replace(/[%_]/g, (c) => '\\' + c)}%`);
     return q.order('fecha', { ascending: false, nullsFirst: false }).order('id', { ascending: true });
   };

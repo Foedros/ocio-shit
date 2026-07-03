@@ -42,6 +42,14 @@
       onclick={() => setFilters({ en_curso: !$archiveFilters.en_curso })}
       title="Ver solo las series que tienes a medias, para retomarlas"
     >◐ En curso</button>
+    <button
+      type="button"
+      class="resena-filter"
+      class:on={$archiveFilters.con_resena}
+      aria-pressed={$archiveFilters.con_resena}
+      onclick={() => setFilters({ con_resena: !$archiveFilters.con_resena })}
+      title="Ver solo las entradas con reseña personal"
+    >✎ Con reseña</button>
   </div>
 </div>
 
@@ -68,6 +76,7 @@
             <span class="date">{fmtFecha(it.fecha)}</span>
             <span class="origen">{label(ORIGEN_LABELS, it.origen)}</span>
             {#if it.fecha_tipo === 'fecha_voto'}<span class="voto">voto aprox.</span>{/if}
+            {#if it.nota}<span class="hasnota" title="Tiene reseña">✎</span>{/if}
           </span>
         </span>
         {#if it.valoracion != null}<span class="val">{fmtValoracion(it.valoracion)}</span>{/if}
@@ -244,6 +253,33 @@
     font-size: 0.58rem;
     letter-spacing: 0.05em;
     flex: 0 0 auto;
+  }
+  .resena-filter {
+    flex: 0 0 auto;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    border-radius: 10px;
+    padding: 0.55rem 0.8rem;
+    font: inherit;
+    font-family: var(--font-data);
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .resena-filter:hover {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .resena-filter.on {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  }
+  .meta .hasnota {
+    color: var(--accent-ink);
+    flex: 0 0 auto;
+    font-size: 0.72rem;
   }
   .val {
     flex: 0 0 auto;
