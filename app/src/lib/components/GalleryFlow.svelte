@@ -103,15 +103,31 @@
     const up = () => { dragging = false; el.style.cursor = 'grab'; };
     const md = (e) => down(e.clientX);
     const mm = (e) => drag(e.clientX);
-    const ts = (e) => down(e.touches[0].clientX);
-    const tm = (e) => drag(e.touches[0].clientX);
+    // TÁCTIL con BLOQUEO DE EJE (patrón estándar de carruseles): en los primeros ~10px se decide la
+    // INTENCIÓN del gesto. Horizontal → el carrusel captura el gesto y preventDefault() en cada
+    // touchmove bloquea el scroll vertical de la página mientras dure el swipe (por eso el listener
+    // es passive:false, y SOLO en el stage). Vertical → scrollea la página y el carrusel no se mueve.
+    // Complementa al CSS touch-action:pan-y del stage (el vertical es del navegador salvo captura).
+    let tx = 0, ty = 0, taxis = null; // null = intención sin decidir · 'h' · 'v'
+    const ts = (e) => { taxis = null; tx = e.touches[0].clientX; ty = e.touches[0].clientY; };
+    const tm = (e) => {
+      const dx = e.touches[0].clientX - tx, dy = e.touches[0].clientY - ty;
+      if (taxis === null) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; // aún sin intención clara
+        taxis = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      }
+      if (taxis === 'v') return; // gesto vertical: lo gestiona el navegador (pan-y)
+      e.preventDefault(); // gesto horizontal: página quieta mientras dure el swipe
+      if (Math.abs(dx) > 60) { move(dx > 0 ? -1 : 1); tx = e.touches[0].clientX; ty = e.touches[0].clientY; }
+    };
+    const te = () => { taxis = null; };
     el.addEventListener('wheel', onWheel, { passive: false });
     el.addEventListener('mousedown', md);
     window.addEventListener('mousemove', mm);
     window.addEventListener('mouseup', up);
     el.addEventListener('touchstart', ts, { passive: true });
-    el.addEventListener('touchmove', tm, { passive: true });
-    el.addEventListener('touchend', up);
+    el.addEventListener('touchmove', tm, { passive: false });
+    el.addEventListener('touchend', te);
     return () => {
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('mousedown', md);
@@ -119,7 +135,7 @@
       window.removeEventListener('mouseup', up);
       el.removeEventListener('touchstart', ts);
       el.removeEventListener('touchmove', tm);
-      el.removeEventListener('touchend', up);
+      el.removeEventListener('touchend', te);
     };
   });
 
