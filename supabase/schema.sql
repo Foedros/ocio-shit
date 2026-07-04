@@ -91,6 +91,9 @@ create table obra (
                             ('cine','streaming','fisico','papel','ebook','audiolibro',
                              'consola','pc','movil','otro')),
   portada_uri            text,
+  -- URL remota de carátula/póster (solo URL, nunca se almacena la imagen): Steam header /
+  -- TMDB w342 / OpenLibrary cover. NULL = fallback tipográfico. ALTER aditivo 2026-07-04.
+  imagen_url             text,
   fuente_externa         text,
   metadata               jsonb,
   clave_dedup            text generated always as (

@@ -52,6 +52,8 @@ CREATE TABLE obra (
                               ('cine','streaming','fisico','papel','ebook','audiolibro',
                                'consola','pc','movil','otro')),
     portada_uri            TEXT,
+    -- URL remota de carátula/póster (Steam header / TMDB w342 / OpenLibrary). NULL = fallback tipográfico.
+    imagen_url             TEXT,
     fuente_externa         TEXT,
     metadata               TEXT,
     clave_dedup            TEXT GENERATED ALWAYS AS (
