@@ -103,15 +103,63 @@
     const up = () => { dragging = false; el.style.cursor = 'grab'; };
     const md = (e) => down(e.clientX);
     const mm = (e) => drag(e.clientX);
-    const ts = (e) => down(e.touches[0].clientX);
-    const tm = (e) => drag(e.touches[0].clientX);
+    // TÁCTIL (solo móvil) — BLOQUEO DE EJE decidido en el PRIMER touchmove. La versión anterior
+    // esperaba ~10px "de intención" SIN preventDefault y en iOS Safari eso pierde la carrera: con
+    // pan-y el navegador inicia el scroll vertical nativo en el primer move y los siguientes llegan
+    // cancelable:false (el preventDefault tardío se ignora). Ahora: el primer movimiento decide el
+    // eje; si es horizontal, preventDefault DESDE ese primer evento (aún cancelable) → el scroll
+    // nativo nunca arranca. Cinturón extra: overflow-lock de html/body mientras dura la captura.
+    // Vertical → ni preventDefault ni movimiento del carrusel (scrollea la página, pan-y).
+    // + AUTO-SCROLL POR MANTENIMIENTO: tras desplazar (gesto capturado), si el dedo queda quieto
+    // ~300ms en el 20% lateral del stage, avanza solo (~2,5 carátulas/s) hasta soltar o salir.
+    const EDGE = 0.2, HOLD_MS = 300, AUTO_MS = 400, JITTER = 8;
+    let tx = 0, ty = 0, taxis = null; // null = sin decidir · 'h' · 'v'
+    let holdTimer = null, autoInt = null, ax = 0; // ancla anti-jitter del hold
+    const lockPage = (on) => {
+      document.documentElement.style.overflow = on ? 'hidden' : '';
+      document.body.style.overflow = on ? 'hidden' : '';
+    };
+    const stopAuto = () => {
+      clearTimeout(holdTimer); holdTimer = null;
+      clearInterval(autoInt); autoInt = null;
+    };
+    const zoneOf = (x) => {
+      const r = el.getBoundingClientRect();
+      const rel = (x - r.left) / r.width;
+      return rel <= EDGE ? -1 : rel >= 1 - EDGE ? 1 : 0;
+    };
+    const armHold = (x) => {
+      stopAuto();
+      const dir = zoneOf(x);
+      if (!dir) return;
+      holdTimer = setTimeout(() => {
+        move(dir);
+        autoInt = setInterval(() => move(dir), AUTO_MS);
+      }, HOLD_MS);
+    };
+    const ts = (e) => { taxis = null; tx = e.touches[0].clientX; ty = e.touches[0].clientY; ax = tx; };
+    const tm = (e) => {
+      const x = e.touches[0].clientX, y = e.touches[0].clientY;
+      const dx = x - tx, dy = y - ty;
+      if (taxis === null) {
+        if (dx === 0 && dy === 0) return;
+        taxis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v'; // PRIMER movimiento decide
+        if (taxis === 'h') lockPage(true);
+      }
+      if (taxis === 'v') return; // vertical: del navegador (pan-y); el carrusel no se mueve
+      if (e.cancelable) e.preventDefault(); // horizontal: la página no se mueve NI 1px
+      if (Math.abs(dx) > 60) { move(dx > 0 ? -1 : 1); tx = x; ty = y; }
+      if (Math.abs(x - ax) > JITTER) { ax = x; armHold(x); } // movimiento real → re-arma el hold
+    };
+    const tend = () => { taxis = null; stopAuto(); lockPage(false); };
     el.addEventListener('wheel', onWheel, { passive: false });
     el.addEventListener('mousedown', md);
     window.addEventListener('mousemove', mm);
     window.addEventListener('mouseup', up);
     el.addEventListener('touchstart', ts, { passive: true });
-    el.addEventListener('touchmove', tm, { passive: true });
-    el.addEventListener('touchend', up);
+    el.addEventListener('touchmove', tm, { passive: false });
+    el.addEventListener('touchend', tend);
+    el.addEventListener('touchcancel', tend);
     return () => {
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('mousedown', md);
@@ -119,7 +167,10 @@
       window.removeEventListener('mouseup', up);
       el.removeEventListener('touchstart', ts);
       el.removeEventListener('touchmove', tm);
-      el.removeEventListener('touchend', up);
+      el.removeEventListener('touchend', tend);
+      el.removeEventListener('touchcancel', tend);
+      stopAuto();
+      lockPage(false);
     };
   });
 
