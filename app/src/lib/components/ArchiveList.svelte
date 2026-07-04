@@ -1,6 +1,7 @@
 <script>
   import VirtualList from './VirtualList.svelte';
-  import { archiveEntries, archiveFilters, filterOpts } from '$lib/stores.js';
+  import GalleryFlow from './GalleryFlow.svelte';
+  import { archiveEntries, archiveFilters, archiveView, filterOpts } from '$lib/stores.js';
   import { setFilters, openEntryDetail } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
@@ -19,7 +20,14 @@
 </script>
 
 <div class="filters">
-  <input class="search" type="search" placeholder="Buscar en el archivo…" oninput={onSearch} aria-label="Buscar" />
+  <div class="toprow">
+    <input class="search" type="search" placeholder="Buscar en el archivo…" oninput={onSearch} aria-label="Buscar" />
+    <!-- Toggle Lista/Galería (diseño Cover Flow): Lista = vista actual intacta; Galería = cover flow -->
+    <div class="viewtoggle" role="group" aria-label="Vista">
+      <button type="button" class="vbtn" class:on={$archiveView === 'lista'} onclick={() => archiveView.set('lista')}>Lista</button>
+      <button type="button" class="vbtn" class:on={$archiveView === 'galeria'} onclick={() => archiveView.set('galeria')}>Galería</button>
+    </div>
+  </div>
   <div class="selects">
     <select aria-label="Categoría" value={$archiveFilters.categoria} onchange={(e) => setFilters({ categoria: e.currentTarget.value })}>
       <option value="">Toda categoría</option>
@@ -53,6 +61,9 @@
   </div>
 </div>
 
+{#if $archiveView === 'galeria'}
+  <GalleryFlow resetKey={filterKey} />
+{:else}
 <p class="count">{$archiveEntries.length.toLocaleString('es-ES')} entradas</p>
 
 {#if $archiveEntries.length === 0}
@@ -84,6 +95,7 @@
     {/snippet}
   </VirtualList>
 {/if}
+{/if}
 
 <style>
   .filters {
@@ -107,8 +119,39 @@
     font: inherit;
     font-family: var(--font-text);
   }
+  .toprow {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
   .search {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .viewtoggle {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 3px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px;
+  }
+  .vbtn {
+    background: none;
+    border: none;
+    border-radius: 999px;
+    padding: 0.42rem 0.8rem;
+    font-family: var(--font-data);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    cursor: pointer;
+  }
+  .vbtn.on {
+    background: var(--accent);
+    color: var(--on-accent);
   }
   .selects select {
     flex: 1 1 8rem;

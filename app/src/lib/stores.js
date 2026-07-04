@@ -35,6 +35,7 @@ export const displayName = derived(auth, ($a) => {
 export const role = writable('init'); // 'leader' | 'follower' | 'init'
 export const archiveEntries = writable([]); // current filtered list of entradas
 export const archiveFilters = writable({ categoria: '', origen: '', fecha_tipo: '', search: '', en_curso: false, con_resena: false });
+export const archiveView = writable('lista'); // 'lista' | 'galeria' — el toggle del Diario (persiste al navegar)
 export const filterOpts = writable({ categorias: [], origenes: [], fecha_tipos: [] });
 export const detail = writable(null); // { kind:'obra'|'entrada', data } selected for the detail panel
 export const colecciones = writable([]); // list of collections with n_obras

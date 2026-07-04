@@ -66,11 +66,13 @@ function mapEntry(r) {
     num_reconsumo: r.num_reconsumo,
     duracion_min: r.duracion_min,
     en_curso: !!r.obra?.en_curso, // serie en curso (nota provisional) — indicador, no afecta métricas
+    anio_obra: r.obra?.anio_obra ?? null, // caption de la Galería (título + año + nota)
+    imagen_url: r.obra?.imagen_url ?? null, // carátula remota (Fase 1); NULL = fallback tipográfico
     origen: r.metadata?.origen ?? null,
     fecha_tipo: r.metadata?.fecha_tipo ?? null
   };
 }
-const ENTRY_SELECT = 'id, obra_id, fecha, estado, valoracion, nota, num_reconsumo, duracion_min, metadata, obra!inner(titulo, categoria, en_curso)';
+const ENTRY_SELECT = 'id, obra_id, fecha, estado, valoracion, nota, num_reconsumo, duracion_min, metadata, obra!inner(titulo, categoria, en_curso, anio_obra, imagen_url)';
 
 // PostgREST caps every response at `max-rows` (1000 on Supabase). Paginate with .range() so the
 // archive can hold all ~3.8k entries. buildQuery() must return a FRESH builder each page (builders
