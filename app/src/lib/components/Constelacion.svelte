@@ -401,29 +401,47 @@
     view.y = (py - H / 2) / view.z - wp.y + H / 2;
   }
 
-  // tres gestos, un umbral (~8px, la disciplina de la Estantería): TAP sobre nodo = seleccionar ·
-  // DRAG sobre nodo = MOVERLO (spring, y al soltar su hogar queda ahí) · DRAG en fondo = orbitar.
-  const NODE_SLOP = 8;
-  let nodeDrag = null; // {node, id, sx, sy, moved, tx, ty}
+  // tres gestos, un umbral: TAP sobre nodo = seleccionar · DRAG sobre nodo = MOVERLO (spring,
+  // y al soltar su hogar queda ahí) · DRAG en fondo = orbitar. SLOP por tipo de puntero: el
+  // dedo real desliza 10-14px en un tap rápido (regresión iOS §11.47) — táctil 16, ratón 8.
+  const slopOf = (e) => (e.pointerType === 'touch' ? 16 : 8);
+  let nodeDrag = null; // {node, id, sx, sy, lx, ly, moved, tx, ty, slop}
   let drag = null; // {id, x, y, sx, sy, moved, p2?, z0?, d0?, wp0?}
   function pd(e) {
     if (e.target !== canvasEl) return;
     if ((drag || nodeDrag) && e.pointerType === 'touch') {
-      // segundo dedo → pinch (un nodo a medio arrastrar se suelta donde esté)
-      if (nodeDrag) dropNode();
-      const base = drag ?? { id: -1, x: e.clientX, y: e.clientY };
-      drag = { id: base.id === -1 ? e.pointerId : base.id, x: base.x, y: base.y, sx: base.x, sy: base.y, moved: true };
+      if (drag?.p2) return; // tercer dedo: se ignora
+      // segundo dedo → pinch. El PRIMARIO conserva SU pointerId y su última posición real
+      // (regresión iOS §11.47: duplicar el id del segundo dedo dejaba un drag huérfano que
+      // mataba todos los taps posteriores hasta reabrir).
+      const base = nodeDrag
+        ? { id: nodeDrag.id, x: nodeDrag.lx, y: nodeDrag.ly }
+        : { id: drag.id, x: drag.x, y: drag.y };
+      if (nodeDrag) dropNode(); // un nodo a medio arrastrar se suelta donde esté
+      drag = { id: base.id, x: base.x, y: base.y, sx: base.x, sy: base.y, moved: true };
       drag.p2 = { id: e.pointerId, x: e.clientX, y: e.clientY };
       drag.z0 = view.z;
       drag.d0 = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
       drag.wp0 = toWorld((e.clientX + drag.x) / 2, (e.clientY + drag.y) / 2);
+      canvasEl.setPointerCapture?.(e.pointerId); // también el 2º dedo: su up SIEMPRE llega aquí
       return;
     }
     const h = hit(e.clientX, e.clientY);
     if (h) {
-      // gesto sobre un NODO: aún no sabemos si tap o arrastre (umbral 8px)
+      // gesto sobre un NODO: aún no sabemos si tap o arrastre (slop por tipo de puntero)
       const wp = toWorld(e.clientX, e.clientY);
-      nodeDrag = { node: h, id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, tx: wp.x, ty: wp.y };
+      nodeDrag = {
+        node: h,
+        id: e.pointerId,
+        sx: e.clientX,
+        sy: e.clientY,
+        lx: e.clientX,
+        ly: e.clientY,
+        moved: false,
+        tx: wp.x,
+        ty: wp.y,
+        slop: slopOf(e)
+      };
     } else {
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
     }
@@ -440,7 +458,9 @@
   }
   function pm(e) {
     if (nodeDrag && e.pointerId === nodeDrag.id) {
-      if (!nodeDrag.moved && Math.hypot(e.clientX - nodeDrag.sx, e.clientY - nodeDrag.sy) > NODE_SLOP) {
+      nodeDrag.lx = e.clientX;
+      nodeDrag.ly = e.clientY;
+      if (!nodeDrag.moved && Math.hypot(e.clientX - nodeDrag.sx, e.clientY - nodeDrag.sy) > nodeDrag.slop) {
         nodeDrag.moved = true; // pasa de tap a ARRASTRE de nodo
         if (canvasEl) canvasEl.style.cursor = 'grabbing';
       }
@@ -507,6 +527,27 @@
     if (!drag.moved) selected = null; // tap al vacío (el fondo) apaga la constelación
     drag = null;
   }
+  // cancel del sistema (swipe de borde iOS, notificación…) o captura perdida: LIMPIA sin
+  // seleccionar (un cancel no es un tap) — sin esto quedaba estado fantasma que se comía
+  // todos los taps siguientes (regresión §11.47). Idempotente: tras un pu normal no hace nada.
+  function pc(e) {
+    if (nodeDrag && e.pointerId === nodeDrag.id) {
+      dropNode();
+      if (canvasEl) canvasEl.style.cursor = 'grab';
+      return;
+    }
+    if (!drag) return;
+    if (drag.p2 && e.pointerId === drag.p2.id) {
+      drag.p2 = null;
+      return;
+    }
+    if (e.pointerId !== drag.id) return;
+    if (drag.p2) {
+      drag = { id: drag.p2.id, x: drag.p2.x, y: drag.p2.y, sx: drag.p2.x, sy: drag.p2.y, moved: true };
+      return;
+    }
+    drag = null;
+  }
   function wheel(e) {
     e.preventDefault();
     const f = e.deltaY < 0 ? 1.12 : 0.89;
@@ -554,6 +595,8 @@
         return { x: rect.left + px * (rect.width / W), y: rect.top + py * (rect.height / H) };
       },
       search: (q) => onSearch(q),
+      gesture: () => ({ drag: !!drag, p2: !!drag?.p2, nodeDrag: !!nodeDrag }),
+      hitAt: (x, y) => hit(x, y)?.nombre ?? null,
       positions: () => nodes.slice(0, 8).map((n) => ({ nombre: n.nombre, x: Math.round(n.x), y: Math.round(n.y) })),
       world: (nombre) => {
         const n = nodes.find((x) => x.nombre?.toLowerCase().includes(nombre.toLowerCase()));
@@ -573,7 +616,8 @@
       onpointerdown={pd}
       onpointermove={pm}
       onpointerup={pu}
-      onpointercancel={pu}
+      onpointercancel={pc}
+      onlostpointercapture={pc}
       onwheel={wheel}
     ></canvas>
 
