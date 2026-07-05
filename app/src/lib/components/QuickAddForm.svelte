@@ -28,6 +28,30 @@
   let matched = $state(null); // resultado de create-vs-link (obra ya existente)
   let more = $state(false);
   let tituloInput = $state(null);
+  let formEl = $state(null);
+
+  // ¿Hay datos escritos? (la fecha por defecto no cuenta). Lo consulta +page.svelte antes de
+  // cerrar el sheet: cierre accidental con datos → confirmación, nunca descartar en silencio.
+  export function isDirty() {
+    return !!(
+      titulo.trim() || nota.trim() || creador.trim() || genInput.trim() ||
+      valoracion !== '' || anio !== '' || durH !== '' || durMin !== '' || generos.length
+    );
+  }
+
+  // Intro/"Ir" (iOS) NUNCA guarda: pasa el foco al siguiente campo, o cierra el teclado en el
+  // último. El guardado es SOLO el tap explícito en "Guardar entrada". El campo Género tiene su
+  // propio Enter (añade el chip y hace preventDefault) → aquí se respeta (defaultPrevented).
+  function formKeydown(e) {
+    if (e.key !== 'Enter' || e.defaultPrevented) return;
+    const t = e.target;
+    if (!(t instanceof HTMLInputElement)) return;
+    e.preventDefault();
+    const inputs = [...(formEl?.querySelectorAll('input:not([disabled])') ?? [])];
+    const next = inputs[inputs.indexOf(t) + 1];
+    if (next) next.focus();
+    else t.blur();
+  }
 
   let canWrite = $derived($role === 'leader');
   let creadorLabel = $derived(ROL_CREADOR_LABEL[categoria] ?? 'Creador');
@@ -133,7 +157,9 @@
   }
 </script>
 
-<form class="reg" onsubmit={submit}>
+<!-- onsubmit SIEMPRE bloqueado: el submit implícito del form (Intro/"Ir" del teclado iOS en
+     cualquier campo) guardaba el alta a medias. Guardar = SOLO el botón (type=button). -->
+<form class="reg" bind:this={formEl} onsubmit={(e) => e.preventDefault()} onkeydown={formKeydown}>
   {#if !canWrite}
     <p class="ro">Esta pestaña es de solo lectura. Registra desde la pestaña principal.</p>
   {/if}
@@ -228,9 +254,9 @@
 
   <div class="actions">
     <Button variant="secondary" type="button" onclick={() => (more = !more)}>{more ? 'Menos' : 'Más'}</Button>
-    <Button variant="primary" type="submit" disabled={!canWrite || !titulo.trim() || !!$busy}>Guardar entrada</Button>
+    <Button variant="primary" type="button" onclick={submit} disabled={!canWrite || !titulo.trim() || !!$busy}>Guardar entrada</Button>
   </div>
-  <p class="foot"><span>Hoy · {fecha}</span><span class="kbd">⏎ guardar</span></p>
+  <p class="foot"><span>Hoy · {fecha}</span><span class="kbd">⏎ siguiente campo</span></p>
 </form>
 
 <style>

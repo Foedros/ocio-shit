@@ -20,6 +20,20 @@
   let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | wrapped | perfil | hall | cuenta
   let showAdd = $state(false);
 
+  // Cierre accidental del registro (✕ / tap fuera / Escape) CON datos escritos → confirmación
+  // ("¿Descartar la entrada?"), nunca se pierde ni se guarda nada en silencio. El formulario
+  // sigue montado debajo del aviso ("Seguir editando" conserva lo escrito).
+  let addFormRef = $state(null);
+  let confirmDiscard = $state(false);
+  function requestCloseAdd() {
+    if (addFormRef?.isDirty?.()) confirmDiscard = true;
+    else closeAdd();
+  }
+  function closeAdd() {
+    showAdd = false;
+    confirmDiscard = false;
+  }
+
   // ── Chasis móvil (Design): drawer lateral + cabecera hamburguesa. Escritorio: pestañas (intacto). ──
   let drawerOpen = $state(false);
   let hallMode = $state('fame'); // el drawer entra a Hall por Fame o por Shame (mismo componente)
@@ -197,8 +211,19 @@
   </nav>
 </div>
 
-<Sheet open={showAdd} title="Nueva entrada" eyebrow="Registro rápido" onclose={() => (showAdd = false)}>
-  <QuickAddForm onsaved={() => (showAdd = false)} />
+<Sheet open={showAdd} title="Nueva entrada" eyebrow="Registro rápido" onclose={requestCloseAdd}>
+  <QuickAddForm bind:this={addFormRef} onsaved={closeAdd} />
+  {#if confirmDiscard}
+    <div class="discard-scrim" role="alertdialog" aria-modal="true" aria-label="Descartar entrada">
+      <div class="discard-box">
+        <p>¿Descartar la entrada? Hay datos sin guardar.</p>
+        <div class="discard-row">
+          <button class="d-keep" onclick={() => (confirmDiscard = false)}>Seguir editando</button>
+          <button class="d-drop" onclick={closeAdd}>Descartar</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </Sheet>
 
 <DetailPanel />
@@ -436,5 +461,56 @@
     .drawer .panel {
       transition: none;
     }
+  }
+
+  /* Confirmación de descarte del registro (encima del sheet z-60; el form sigue montado debajo) */
+  .discard-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: color-mix(in srgb, #000 55%, transparent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.2rem;
+  }
+  .discard-box {
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    padding: 1.1rem 1.2rem;
+    max-width: 22rem;
+    width: 100%;
+    box-shadow: var(--shadow-raised, 0 8px 30px rgba(0, 0, 0, 0.5));
+  }
+  .discard-box p {
+    margin: 0 0 0.9rem;
+    line-height: 1.45;
+  }
+  .discard-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .d-keep {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: var(--on-accent);
+    border-radius: var(--radius-pill);
+    padding: 0.55rem 1.1rem;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .d-drop {
+    background: none;
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+    color: var(--danger-ink);
+    border-radius: var(--radius-pill);
+    padding: 0.55rem 1.1rem;
+    cursor: pointer;
+  }
+  .d-drop:hover {
+    border-color: var(--danger);
   }
 </style>
