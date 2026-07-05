@@ -5,6 +5,7 @@
   // (detalle por año, bajo demanda; el cliente agrupa por mes y agrupa los votos FA en clúster).
   import { onMount } from 'svelte';
   import { timelineMacro, timelineYear } from '$lib/db/supabase-data.js';
+  import { inView, prefersReducedMotion } from '$lib/motion.js';
   import Skeleton from './Skeleton.svelte';
 
   let loading = $state(true);
@@ -17,7 +18,14 @@
   let openVoto = $state({}); // {mes: bool} clúster de votos desplegado
   let openReal = $state({}); // {mes: bool} mes denso de reales desplegado
 
-  onMount(loadMacro);
+  // Tanda 2 · cascada del histograma: se dispara al entrar en viewport, UNA vez por visita.
+  // Con reduced-motion, barras al estado final desde el arranque (sin esperar al observer).
+  let barsSeen = $state(false);
+
+  onMount(() => {
+    if (prefersReducedMotion()) barsSeen = true;
+    loadMacro();
+  });
   async function loadMacro() {
     loading = true; error = null;
     try { macro = await timelineMacro(); } catch (e) { error = e.message; } finally { loading = false; }
@@ -98,12 +106,15 @@
       </div>
 
       <div class="mono col-head"><span>AÑO · VOLUMEN Y MEZCLA</span><span>Nº</span></div>
-      <div class="rows">
-        {#each years as a (a.anio)}
+      <!-- Tanda 2 · histograma CINEMÁTICO: las barras crecen en cascada (scaleX desde la base,
+           35ms de escalera por barra, ease-out-expo) al ENTRAR en viewport, una vez por visita.
+           transform puro → sin layout shift; reduced-motion global → estado final al instante. -->
+      <div class="rows" use:inView={{ once: true, cb: (v) => v && (barsSeen = true) }}>
+        {#each years as a, i (a.anio)}
           <button class="yr" class:sel={a.anio === maxYear} disabled={a.total === 0} onclick={() => selectYear(a.anio)}>
             <span class="yl mono" class:hot={a.anio === maxYear}>{a.anio}</span>
             <span class="wrap">
-              <span class="bar" style="width:{(100 * a.total) / maxTot}%">
+              <span class="bar" class:grown={barsSeen} style="width:{(100 * a.total) / maxTot}%;--d:{i * 35}ms">
                 {#each segsOf(a) as s}<span class="seg" style="width:{(100 * s.n) / a.total}%;background:{s.c}"></span>{/each}
               </span>
             </span>
@@ -228,7 +239,17 @@
   .yl { font-size: 0.72rem; width: 36px; flex: none; color: var(--ink-3); }
   .yl.hot, .cnt.hot { color: var(--gold); }
   .wrap { flex: 1; height: 16px; border-radius: 4px; overflow: hidden; background: #120f0b; }
-  .bar { height: 100%; display: flex; border-radius: 4px; overflow: hidden; transform-origin: left; animation: growH 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .bar {
+    height: 100%;
+    display: flex;
+    border-radius: 4px;
+    overflow: hidden;
+    transform-origin: left;
+    transform: scaleX(0);
+    transition: transform 450ms var(--ease-out-expo);
+    transition-delay: var(--d, 0ms);
+  }
+  .bar.grown { transform: scaleX(1); }
   .yr.sel .bar { box-shadow: 0 0 0 1.5px rgba(242, 166, 90, 0.55); }
   .seg { height: 100%; }
   .cnt { font-size: 0.7rem; width: 34px; flex: none; text-align: right; color: var(--ink-3); }
@@ -294,7 +315,6 @@
   .err { text-align: center; padding: 2rem; color: var(--ink-2); }
   .err button { margin-top: 0.6rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; padding: 0.5rem 1rem; cursor: pointer; }
 
-  @keyframes growH { from { transform: scaleX(0); } }
   @keyframes growline { from { transform: scaleY(0); } }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes dotpop { 0% { transform: scale(0); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }

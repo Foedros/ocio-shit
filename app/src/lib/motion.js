@@ -103,6 +103,47 @@ function getObserver(threshold) {
   return o;
 }
 
+/**
+ * countUp + inView compuestos (el patrón de las pantallas de datos): pinta el valor FINAL
+ * de inmediato (layout estable, nada de saltos) y, la PRIMERA vez que el nodo entra en el
+ * viewport, cuenta 0→valor. Con reduced-motion se queda en el valor final (sin animación).
+ *   use:countUpInView={{ value: 4480 }} · use:countUpInView={{ value: 82.92, decimals: 2 }}
+ */
+export function countUpInView(node, params) {
+  const norm = (p) => (typeof p === 'object' && p !== null ? p : { value: p });
+  let p = norm(params);
+  let fired = false;
+  let inner = null;
+  node.textContent = fmtCount(p.value ?? 0, p.decimals ?? 0);
+  if (prefersReducedMotion()) {
+    return {
+      update(np) {
+        p = norm(np);
+        node.textContent = fmtCount(p.value ?? 0, p.decimals ?? 0);
+      }
+    };
+  }
+  const obs = inView(node, {
+    once: true,
+    cb: (visible) => {
+      if (!visible || fired) return;
+      fired = true;
+      inner = countUp(node, p);
+    }
+  });
+  return {
+    update(np) {
+      p = norm(np);
+      if (fired) inner?.update(p);
+      else node.textContent = fmtCount(p.value ?? 0, p.decimals ?? 0);
+    },
+    destroy() {
+      obs.destroy();
+      inner?.destroy();
+    }
+  };
+}
+
 export function inView(node, params) {
   const norm = (p) => (typeof p === 'function' ? { cb: p } : p || {});
   let { cb, once = false, threshold = 0.2 } = norm(params);

@@ -5,10 +5,18 @@
   import { onMount } from 'svelte';
   import { stats } from '$lib/db/supabase-data.js';
   import Skeleton from './Skeleton.svelte';
+  import { countUp, countUpInView, inView, prefersReducedMotion } from '$lib/motion.js';
 
   let loading = $state(true);
   let error = $state(null);
   let d = $state(null);
+
+  // Tanda 2 · el anillo se dibuja al ENTRAR en viewport (una vez por visita); el número
+  // central cuenta en paralelo. Con reduced-motion, todo al valor final desde el arranque.
+  let ringSeen = $state(false);
+  onMount(() => {
+    if (prefersReducedMotion()) ringSeen = true;
+  });
 
   onMount(load);
   async function load() {
@@ -123,13 +131,16 @@
       <!-- 01 · ÍNDICE DE DIVERSIDAD -->
       <article class="card hero glow">
         <span class="aura"></span>
-        <div class="ring-wrap">
+        <div class="ring-wrap" use:inView={{ once: true, cb: (v) => v && (ringSeen = true) }}>
           <svg viewBox="0 0 210 210" class="ring">
             {#each RINGS as g}
               <circle cx="105" cy="105" r={g.r} fill="none" stroke="#211C16" stroke-width={g.w} />
             {/each}
+            <!-- Los 3 arcos se dibujan SECUENCIALMENTE (década → género → creador) con solape
+                 parcial: 600ms + delay de 250ms por arco, ease-out-expo (tokens de motion). -->
             {#each RINGS as g, i}
               <circle
+                class="arc"
                 cx="105"
                 cy="105"
                 r={g.r}
@@ -138,12 +149,17 @@
                 stroke-width={g.w}
                 stroke-linecap="round"
                 stroke-dasharray={circ(g.r)}
-                style="--circ:{circ(g.r)};--off:{dashoff(g.r, div?.[g.key])};stroke-dashoffset:{dashoff(g.r, div?.[g.key])};animation-delay:{0.3 + i * 0.15}s"
+                style="--i:{i};stroke-dashoffset:{ringSeen ? dashoff(g.r, div?.[g.key]) : circ(g.r)}"
               />
             {/each}
           </svg>
           <div class="ring-center">
-            <span class="big-gold">{dec(div?.indice)}</span>
+            <span
+              class="big-gold"
+              use:countUp={ringSeen
+                ? { value: Number(div?.indice ?? 0), decimals: 2, duration: 1100 }
+                : { value: 0, decimals: 2, duration: 0 }}
+            ></span>
             <span class="mono dim">/ 100 · ALTO</span>
           </div>
         </div>
@@ -163,12 +179,12 @@
         </div>
       </article>
 
-      <!-- 05 · GRANDES NÚMEROS -->
+      <!-- 05 · GRANDES NÚMEROS — cuentan 0→valor al entrar en viewport (una vez) -->
       <div class="bignums">
-        <article class="card stat"><div class="num">{fmt(cor?.obras)}</div><div class="lab mono">OBRAS</div></article>
-        <article class="card stat"><div class="num gold">{fmt(cor?.horas)}<span class="u"> h</span></div><div class="lab mono">≈ {fmt(dias)} DÍAS</div></article>
-        <article class="card stat"><div class="num">{fmt(cor?.entradas)}</div><div class="lab mono">ENTRADAS</div></article>
-        <article class="card stat"><div class="num">{fmt(cor?.creadores)}</div><div class="lab mono">CREADORES</div></article>
+        <article class="card stat"><div class="num"><span use:countUpInView={{ value: Math.round(Number(cor?.obras ?? 0)) }}></span></div><div class="lab mono">OBRAS</div></article>
+        <article class="card stat"><div class="num gold"><span use:countUpInView={{ value: Math.round(Number(cor?.horas ?? 0)) }}></span><span class="u"> h</span></div><div class="lab mono">≈ {fmt(dias)} DÍAS</div></article>
+        <article class="card stat"><div class="num"><span use:countUpInView={{ value: Math.round(Number(cor?.entradas ?? 0)) }}></span></div><div class="lab mono">ENTRADAS</div></article>
+        <article class="card stat"><div class="num"><span use:countUpInView={{ value: Math.round(Number(cor?.creadores ?? 0)) }}></span></div><div class="lab mono">CREADORES</div></article>
       </div>
     </div>
 
@@ -353,12 +369,17 @@
 
   .ring-wrap { position: relative; width: 200px; height: 200px; flex: none; }
   .ring { width: 100%; height: 100%; transform: rotate(-90deg); }
-  .ring circle:nth-child(n + 4) { animation: ringdraw 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  /* Tanda 2: los arcos se dibujan por TRANSICIÓN al fijar ringSeen (inView, una vez) —
+     600ms ease-out-expo con 250ms de escalera (solape parcial). Reduced-motion global → 0.01ms. */
+  .ring .arc {
+    transition: stroke-dashoffset var(--dur-slow) var(--ease-out-expo);
+    transition-delay: calc(var(--i) * 250ms);
+  }
   .ring-center {
     position: absolute; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center;
   }
-  .big-gold { font-family: var(--font-display); font-size: 50px; color: var(--gold); font-weight: 500; line-height: 0.9; }
+  .big-gold { font-family: var(--font-display); font-size: 50px; color: var(--gold); font-weight: 500; line-height: 0.9; font-variant-numeric: tabular-nums; }
   .mono { font-family: var(--font-data); }
   .dim { font-size: 10px; color: var(--ink-3); letter-spacing: 0.1em; margin-top: 4px; }
   .serif-it { font-family: var(--font-display); font-style: italic; font-size: 0.95rem; color: var(--ink-2); line-height: 1.35; margin: 6px 0 16px; text-align: center; }
@@ -391,7 +412,7 @@
 
   .bignums { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .card.stat { padding: 16px 18px; display: flex; flex-direction: column; justify-content: center; }
-  .card.stat .num { font-family: var(--font-display); font-size: 34px; color: var(--ink); font-weight: 500; line-height: 0.9; }
+  .card.stat .num { font-family: var(--font-display); font-size: 34px; color: var(--ink); font-weight: 500; line-height: 0.9; font-variant-numeric: tabular-nums; }
   .card.stat .num.gold { color: var(--gold); }
   .card.stat .num .u { font-size: 15px; color: var(--ink-3); }
   .card.stat .lab { font-size: 10px; color: var(--ink-3); letter-spacing: 0.08em; margin-top: 8px; }
@@ -474,7 +495,6 @@
   @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes barGrow { from { width: 0; } }
   @keyframes colGrow { from { height: 0; } }
-  @keyframes ringdraw { from { stroke-dashoffset: var(--circ); } to { stroke-dashoffset: var(--off); } }
   @keyframes aura { 0%, 100% { opacity: 0.3; transform: translateX(-50%) scale(1); } 50% { opacity: 0.55; transform: translateX(-50%) scale(1.06); } }
   @keyframes glow { 0%, 100% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.28), 0 8px 30px rgba(232, 96, 44, 0.1); } 50% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.45), 0 10px 38px rgba(232, 96, 44, 0.2); } }
   @media (prefers-reduced-motion: reduce) {
