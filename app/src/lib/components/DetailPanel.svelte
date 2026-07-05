@@ -125,6 +125,7 @@
   eyebrow={$detail?.kind === 'obra' ? 'Obra' : 'Entrada'}
   title={$detail?.kind === 'obra' ? $detail.data.obra.titulo : ($detail?.data?.titulo ?? '')}
   onclose={closeDetail}
+  backdrop={$detail?.kind === 'entrada' ? ($detail.data.imagen_url ?? null) : ($detail?.data?.obra?.imagen_url ?? null)}
 >
   {#snippet coverPicker()}
     <div class="cov-picker">
@@ -179,6 +180,13 @@
     {@render coverPicker()}
   {:else if $detail?.kind === 'entrada'}
     {@const e = $detail.data}
+    {#if e.imagen_url && !editing}
+      <!-- DESTINO del vuelo (view-transition-name compartido con la carátula tocada) + pieza
+           central del modo cine (flota sobre el fondo desenfocado) -->
+      <div class="d-cover">
+        <img src={e.imagen_url} alt="Carátula de {e.titulo}" loading="lazy" draggable="false" style="view-transition-name: cover-fly" />
+      </div>
+    {/if}
     <div class="chip-row">
       <span class="dot" style="background:{col(e.categoria).c}"></span>
       <span class="cat" style="color:{col(e.categoria).tint}">{label(CATEGORIA_LABELS, e.categoria)}</span>
@@ -271,7 +279,7 @@
     </div>
     {#if o.imagen_url}
       <div class="cov-current obra-cov">
-        <img src={o.imagen_url} alt="Carátula de {o.titulo}" loading="lazy" />
+        <img src={o.imagen_url} alt="Carátula de {o.titulo}" loading="lazy" style="view-transition-name: cover-fly" />
       </div>
     {/if}
     {#if $role === 'leader'}
@@ -317,6 +325,20 @@
 </Sheet>
 
 <style>
+  /* Cover del detalle (destino del vuelo + protagonista del modo cine) */
+  .d-cover {
+    display: flex;
+    justify-content: center;
+    margin: 0.3rem 0 1.1rem;
+  }
+  .d-cover img {
+    height: 200px;
+    max-width: 85%;
+    object-fit: contain;
+    border-radius: 10px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+    display: block;
+  }
   .chip-row {
     display: flex;
     align-items: center;

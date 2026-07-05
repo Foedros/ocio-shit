@@ -99,12 +99,13 @@
       clearTimeout(pressTimer); // movimiento de verdad (scroll) — el temblor no cancela
     }
   }
-  function cellClick(it) {
+  function cellClick(it, ev) {
     if (suppressClick) {
       suppressClick = false;
       return;
     }
-    openEntryDetail(it.entrada_id);
+    // Tanda 3: la carátula tocada es el ORIGEN del vuelo hacia el detalle (fallback null = sin vuelo)
+    openEntryDetail(it.entrada_id, { fromEl: ev?.currentTarget?.querySelector('img') ?? null });
   }
   function onScroll(e) {
     scrollTop = e.currentTarget.scrollTop;
@@ -123,7 +124,7 @@
         <button
           class="cell"
           style="--c:{col(it.categoria).c}; --t:{col(it.categoria).tint}"
-          onclick={() => cellClick(it)}
+          onclick={(e) => cellClick(it, e)}
           ontouchstart={(e) => tStart(e, it)}
           ontouchend={tCancel}
           ontouchmove={tMove}

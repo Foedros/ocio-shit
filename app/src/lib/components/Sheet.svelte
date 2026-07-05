@@ -1,14 +1,20 @@
 <script>
   // pantallas.md: bottom sheet on mobile (sheetUp), centered modal on desktop (scaleIn),
   // over a dimmed scrim. Grip on mobile; eyebrow + title + close.
-  let { open = false, title = '', eyebrow = '', onclose, children } = $props();
+  // MODO CINE (Tanda 3): `backdrop` = URL de carátula → banda superior con la imagen ampliada
+  // y desenfocada, oscurecida hacia el fondo museo en los bordes (estilo Apple TV). Usa la
+  // MISMA w342 ya cacheada (mismo src = cero re-fetch); blur+scale en capa compositada.
+  let { open = false, title = '', eyebrow = '', onclose, backdrop = null, children } = $props();
 </script>
 
 <svelte:window onkeydown={(e) => open && e.key === 'Escape' && onclose?.()} />
 
 {#if open}
   <div class="scrim" role="presentation" onclick={onclose}>
-    <div class="sheet" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+    <div class="sheet" class:cine-on={!!backdrop} role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+      {#if backdrop}
+        <div class="cine" aria-hidden="true"><img src={backdrop} alt="" draggable="false" /></div>
+      {/if}
       <div class="grip" aria-hidden="true"></div>
       <header>
         <div>
@@ -38,6 +44,7 @@
     animation: fade 0.2s ease;
   }
   .sheet {
+    position: relative; /* contiene la capa cine */
     background: var(--bg);
     border: none;
     border-radius: 0;
@@ -49,6 +56,46 @@
     overscroll-behavior: contain;
     padding: 1rem 1.1rem 2.4rem;
     animation: sheetUp 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  /* MODO CINE: banda superior con la carátula ampliada+desenfocada, fundida a --bg abajo y
+     en los laterales. Absoluta dentro del scroller → se desplaza con el contenido (cabecera
+     de arte, estilo Apple TV) y el blur se rasteriza UNA vez (capa compositada, scroll gratis). */
+  .cine {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 320px;
+    overflow: hidden;
+    pointer-events: none;
+    border-radius: inherit;
+  }
+  .cine img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(26px) brightness(0.72) saturate(1.08);
+    transform: scale(1.2) translateZ(0);
+    will-change: transform;
+  }
+  .cine::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--bg) 72%, transparent) 0%, transparent 22% 78%, color-mix(in srgb, var(--bg) 72%, transparent) 100%),
+      linear-gradient(180deg, color-mix(in srgb, var(--bg) 46%, transparent) 0%, color-mix(in srgb, var(--bg) 60%, transparent) 55%, var(--bg) 100%);
+  }
+  .body,
+  header {
+    position: relative;
+    z-index: 1;
+  }
+  /* con cine, la cabecera pegajosa deja ver el arte (tinte + blur para seguir legible al scrollear) */
+  .sheet.cine-on header {
+    background: color-mix(in srgb, var(--bg) 45%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
   @media (min-width: 701px) {
     .scrim {
@@ -85,7 +132,9 @@
   }
   @media (min-width: 701px) {
     header {
-      position: static;
+      /* relative (no static): mismo layout, pero conserva el z-index → el título y la ✕
+         quedan SIEMPRE por encima de la capa cine (con static, el absoluto pintaba encima) */
+      position: relative;
       background: none;
     }
   }

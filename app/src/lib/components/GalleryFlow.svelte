@@ -91,7 +91,11 @@
   };
 
   const move = (d) => (idx = Math.max(0, Math.min(count - 1, idx + d)));
-  const onCoverClick = (off, it) => (off === 0 ? openEntryDetail(it.entrada_id) : move(off));
+  // Tanda 3: la carátula CENTRAL tocada es el origen del vuelo al detalle (laterales solo centran)
+  const onCoverClick = (off, it, el) =>
+    off === 0
+      ? openEntryDetail(it.entrada_id, { fromEl: el?.querySelector('.cover-inner img') ?? null })
+      : move(off);
 
   // ── MOTOR DE GLIDE (rAF) — movimiento continuo para inercia y crucero sostenido ──────────────
   // frac = desplazamiento fraccional del centro (en carátulas); mientras gliding, las transiciones
@@ -334,8 +338,8 @@
           role="button"
           tabindex="-1"
           aria-label={it.titulo}
-          onclick={() => onCoverClick(off, it)}
-          onkeydown={(e) => e.key === 'Enter' && onCoverClick(off, it)}
+          onclick={(e) => onCoverClick(off, it, e.currentTarget)}
+          onkeydown={(e) => e.key === 'Enter' && onCoverClick(off, it, e.currentTarget)}
         >
           <div class="cover-inner" style="width:{wOf(it)}px;height:{H}px">
             {#if hasImg(it)}

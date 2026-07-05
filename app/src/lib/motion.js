@@ -103,6 +103,60 @@ function getObserver(threshold) {
   return o;
 }
 
+// ── Shared element "carátula que vuela" (View Transitions API, Tanda 3) ─────────────────
+// flyOpen(el, apply): marca la carátula ORIGEN con view-transition-name y ejecuta `apply`
+// (que monta el detalle, cuyo cover lleva el MISMO nombre en el estado nuevo) dentro de
+// document.startViewTransition → el navegador interpola posición/tamaño (la carátula
+// "vuela"). flyBack(apply) hace el viaje inverso hacia el origen recordado.
+// Fallback LIMPIO: sin API (Safari iOS <18), con reduced-motion o si el origen ya no está
+// montado, `apply` corre directo (fade/sheet estándar — la navegación jamás se rompe).
+let flyOrigin = null;
+
+const vtAvailable = () =>
+  typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !prefersReducedMotion();
+
+export function flyClearOrigin() {
+  flyOrigin = null;
+}
+
+export async function flyOpen(el, apply) {
+  flyOrigin = el && el.isConnected ? el : null;
+  if (!flyOrigin || !vtAvailable()) {
+    await apply();
+    return;
+  }
+  el.style.viewTransitionName = 'cover-fly';
+  try {
+    const vt = document.startViewTransition(async () => {
+      el.style.viewTransitionName = ''; // el nombre pasa al cover del detalle (único por estado)
+      await apply();
+    });
+    await vt.finished;
+  } catch {
+    el.style.viewTransitionName = '';
+  }
+}
+
+export async function flyBack(apply) {
+  const el = flyOrigin;
+  flyOrigin = null;
+  if (!el?.isConnected || !vtAvailable()) {
+    await apply();
+    return;
+  }
+  try {
+    const vt = document.startViewTransition(async () => {
+      await apply(); // desmonta el detalle…
+      el.style.viewTransitionName = 'cover-fly'; // …y el nombre vuelve al origen
+    });
+    await vt.finished;
+  } catch {
+    /* transición saltada: la navegación ya se aplicó */
+  } finally {
+    el.style.viewTransitionName = '';
+  }
+}
+
 /**
  * countUp + inView compuestos (el patrón de las pantallas de datos): pinta el valor FINAL
  * de inmediato (layout estable, nada de saltos) y, la PRIMERA vez que el nodo entra en el

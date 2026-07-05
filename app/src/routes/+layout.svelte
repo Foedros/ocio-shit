@@ -65,6 +65,22 @@
     --ease: cubic-bezier(0.2, 0.8, 0.2, 1); /* la curva estándar del diseño (sheets) */
   }
 
+  /* "Carátula que vuela" (Tanda 3, View Transitions API): el grupo cover-fly interpola
+     posición/tamaño entre la carátula tocada y su sitio en el detalle. old/new a cover
+     evita el estirado cuando los aspectos difieren (celda 2:3 vs cover natural). El JS
+     (flyOpen/flyBack en motion.js) ni arranca la transición sin API o con reduced-motion. */
+  :global(::view-transition-group(cover-fly)) {
+    animation-duration: var(--dur-base);
+    animation-timing-function: var(--ease);
+  }
+  :global(::view-transition-old(cover-fly)),
+  :global(::view-transition-new(cover-fly)) {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+    animation-duration: var(--dur-base);
+  }
+
   /* prefers-reduced-motion GLOBAL: mata toda animación/transición no esencial (patrón
      0.01ms — los estados finales se aplican, el movimiento no). Las animaciones JS (rAF)
      comprueban prefersReducedMotion() de $lib/motion.js. Toda animación futura lo hereda. */

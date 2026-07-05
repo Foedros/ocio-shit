@@ -5,6 +5,8 @@
 // (LWW by actualizado_en). Auth: the single user signs in with the PUBLISHABLE key.
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
+import { tick } from 'svelte';
+import { flyOpen, flyBack, flyClearOrigin } from './motion.js';
 import * as data from './db/supabase-data.js';
 import {
   phase,
@@ -154,10 +156,23 @@ export async function setFilters(patch) {
   archiveFilters.update((f) => ({ ...f, ...patch }));
   await refreshArchive();
 }
-export async function openEntryDetail(entradaId) {
+// Tanda 3 · "carátula que vuela": si el caller pasa fromEl (la <img> tocada en Estantería/
+// Galería), el detalle se abre con una View Transition desde esa carátula — los DATOS se
+// piden ANTES de arrancar la transición (la página no se congela esperando la red). Sin
+// fromEl (navegación interna, lista) se limpia el origen: cerrar no vuela a un sitio viejo.
+export async function openEntryDetail(entradaId, { fromEl } = {}) {
   try {
     const d = await data.getEntry(entradaId);
-    if (d) detail.set({ kind: 'entrada', data: d });
+    if (!d) return;
+    const apply = async () => {
+      detail.set({ kind: 'entrada', data: d });
+      await tick(); // el cover destino debe estar en el DOM dentro de la transición
+    };
+    if (fromEl) await flyOpen(fromEl, apply);
+    else {
+      flyClearOrigin();
+      await apply();
+    }
   } catch (err) {
     logEvent('warn', `No se pudo abrir la entrada: ${err.message}`);
   }
@@ -165,13 +180,19 @@ export async function openEntryDetail(entradaId) {
 export async function openObraDetail(obraId) {
   try {
     const d = await data.getObra(obraId);
-    if (d) detail.set({ kind: 'obra', data: d });
+    if (d) {
+      flyClearOrigin();
+      detail.set({ kind: 'obra', data: d });
+    }
   } catch (err) {
     logEvent('warn', `No se pudo abrir la obra: ${err.message}`);
   }
 }
-export function closeDetail() {
-  detail.set(null);
+export async function closeDetail() {
+  await flyBack(async () => {
+    detail.set(null);
+    await tick();
+  });
 }
 
 // Create-vs-link + datalist de géneros para el registro rápido (lecturas RLS-scoped).
