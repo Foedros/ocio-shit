@@ -4,6 +4,7 @@
   // números de muestra del diseño. Se actualiza solo (lee de Supabase en vivo).
   import { onMount } from 'svelte';
   import { stats } from '$lib/db/supabase-data.js';
+  import Skeleton from './Skeleton.svelte';
 
   let loading = $state(true);
   let error = $state(null);
@@ -109,7 +110,7 @@
 
   {#if loading}
     <div class="skeleton">
-      {#each Array(4) as _}<div class="sk-card"></div>{/each}
+      {#each Array(4) as _}<Skeleton h="120px" r="18px" />{/each}
     </div>
   {:else if error}
     <div class="err">
@@ -467,7 +468,6 @@
 
   /* skeleton / error */
   .skeleton { display: flex; flex-direction: column; gap: 14px; }
-  .sk-card { height: 120px; border-radius: 18px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   .err { text-align: center; padding: 2rem; color: var(--ink-2); }
   .err button { margin-top: 0.6rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; padding: 0.5rem 1rem; cursor: pointer; }
 
@@ -477,8 +477,7 @@
   @keyframes ringdraw { from { stroke-dashoffset: var(--circ); } to { stroke-dashoffset: var(--off); } }
   @keyframes aura { 0%, 100% { opacity: 0.3; transform: translateX(-50%) scale(1); } 50% { opacity: 0.55; transform: translateX(-50%) scale(1.06); } }
   @keyframes glow { 0%, 100% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.28), 0 8px 30px rgba(232, 96, 44, 0.1); } 50% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.45), 0 10px 38px rgba(232, 96, 44, 0.2); } }
-  @keyframes shimmer { to { background-position: -200% 0; } }
   @media (prefers-reduced-motion: reduce) {
-    .card, .segfill, .fill, .hfill, .compl-fill, .ring circle, .aura, .card.glow, .sk-card { animation: none !important; }
+    .card, .segfill, .fill, .hfill, .compl-fill, .ring circle, .aura, .card.glow { animation: none !important; }
   }
 </style>

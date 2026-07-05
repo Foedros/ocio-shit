@@ -6,6 +6,7 @@
   // viviste". NO compartible (decisión: archivo íntimo) → sin botón de compartir. Solo lectura.
   import { onMount } from 'svelte';
   import { wrappedYears, wrapped } from '$lib/db/supabase-data.js';
+  import Skeleton from './Skeleton.svelte';
 
   let loading = $state(true);
   let error = $state(null);
@@ -85,7 +86,7 @@
 
 <section class="wrapped">
   {#if loading}
-    <div class="skeleton"><div class="sk big"></div></div>
+    <div class="skeleton"><Skeleton h="60vh" r="22px" /></div>
   {:else if error && mode === 'archivo'}
     <div class="err"><p>No se pudo cargar el anuario.</p><button onclick={load}>Reintentar</button></div>
 
@@ -371,7 +372,6 @@
   .sellado { font-size: 11px; color: var(--ink-3); margin-top: 18px; letter-spacing: 0.04em; }
 
   /* skeleton / error */
-  .skeleton .sk.big { height: 60vh; border-radius: 22px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   .err { text-align: center; padding: 2rem; color: var(--ink-2); }
   .err button { margin-top: 0.6rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; padding: 0.5rem 1rem; cursor: pointer; }
 
@@ -382,7 +382,6 @@
   @keyframes ringdraw { from { stroke-dashoffset: 641; } }
   @keyframes barGrow { from { width: 0; } }
   @keyframes barUp { from { height: 0 !important; } }
-  @keyframes shimmer { to { background-position: -200% 0; } }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) {
     .warc, .antesala, .an-ring .aura, .an-ring svg circle, .t-seg, .big-year, .vol-num .big, .vfill, .cu-cover, .cu-nota, .gen-top, .pe-av, .pe-name, .mes-name, .mbar, .sp { animation: none !important; }

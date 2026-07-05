@@ -6,6 +6,7 @@
   import { onMount } from 'svelte';
   import { displayName } from '$lib/stores.js';
   import { home } from '$lib/db/supabase-data.js';
+  import Skeleton from './Skeleton.svelte';
 
   let { onnavigate = () => {}, onregister = () => {} } = $props();
 
@@ -78,7 +79,7 @@
 
 <section class="home">
   {#if loading}
-    <div class="skeleton">{#each Array(4) as _}<div class="sk"></div>{/each}</div>
+    <div class="skeleton">{#each Array(4) as _}<Skeleton h="110px" r="18px" />{/each}</div>
   {:else if error}
     <div class="err"><p>No se pudo cargar el inicio.</p><button onclick={load}>Reintentar</button></div>
   {:else if d}
@@ -309,7 +310,6 @@
 
   /* skeleton / error */
   .skeleton { display: flex; flex-direction: column; gap: 14px; }
-  .sk { height: 110px; border-radius: 18px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   .err { text-align: center; padding: 2rem; color: var(--ink-2); }
   .err button { margin-top: 0.6rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; padding: 0.5rem 1rem; cursor: pointer; }
 
@@ -318,8 +318,7 @@
   @keyframes ringdraw { from { stroke-dashoffset: 170; } }
   @keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2); opacity: 0; } }
   @keyframes glowpulse { 0%, 100% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.28), 0 6px 22px rgba(232, 96, 44, 0.1); } 50% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.48), 0 8px 30px rgba(232, 96, 44, 0.2); } }
-  @keyframes shimmer { to { background-position: -200% 0; } }
   @media (prefers-reduced-motion: reduce) {
-    .hero, .reg, .card, .cumbre, .mini-door, .racha, .avatar .aura, .reg-ic .pulse, .sk, .div-ring svg circle, .avatar .ring circle { animation: none !important; }
+    .hero, .reg, .card, .cumbre, .mini-door, .racha, .avatar .aura, .reg-ic .pulse, .div-ring svg circle, .avatar .ring circle { animation: none !important; }
   }
 </style>

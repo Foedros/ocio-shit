@@ -6,6 +6,7 @@
   // nota_obra = media de las valoraciones no nulas de la obra (misma regla en ambas vistas).
   import { onMount } from 'svelte';
   import { hall } from '$lib/db/supabase-data.js';
+  import Skeleton from './Skeleton.svelte';
 
   // initialMode: el drawer móvil entra por "Hall of Fame" o "Hall of Shame" (dos accesos al MISMO
   // componente). El toggle interno sigue mandando; solo se sincroniza cuando el padre cambia el modo.
@@ -96,7 +97,7 @@
 
 <section class="hall {mode}">
   {#if loading}
-    <div class="skeleton">{#each Array(3) as _}<div class="sk"></div>{/each}</div>
+    <div class="skeleton">{#each Array(3) as _}<Skeleton h="150px" r="18px" />{/each}</div>
   {:else if error}
     <div class="err"><p>No se pudo cargar el salón.</p><button onclick={load}>Reintentar</button></div>
   {:else if h}
@@ -304,7 +305,6 @@
   .closing { text-align: center; font-family: var(--font-display); font-style: italic; font-size: 14px; color: var(--hfaint); margin: 14px 14px 0; line-height: 1.5; }
 
   .skeleton { display: flex; flex-direction: column; gap: 14px; }
-  .sk { height: 150px; border-radius: 18px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   .err { text-align: center; padding: 2rem; color: var(--ink-2); }
   .err button { margin-top: 0.6rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; padding: 0.5rem 1rem; cursor: pointer; }
 
@@ -315,8 +315,7 @@
   @keyframes haloBreath { 0%, 100% { opacity: 0.4; transform: translateX(-50%) scale(1); } 50% { opacity: 0.72; transform: translateX(-50%) scale(1.12); } }
   @keyframes haloFade { 0%, 100% { opacity: 0.22; transform: translateX(-50%) scale(1.05); } 50% { opacity: 0.4; transform: translateX(-50%) scale(0.95); } }
   @keyframes glowpulse { 0%, 100% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.3), 0 10px 40px rgba(232, 96, 44, 0.12); } 50% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.55), 0 14px 54px rgba(232, 96, 44, 0.26); } }
-  @keyframes shimmer { to { background-position: -200% 0; } }
   @media (prefers-reduced-motion: reduce) {
-    .hero, .cover, .halo, .c-fill, .podio, .cifras, .invite, .solace, .sk { animation: none !important; }
+    .hero, .cover, .halo, .c-fill, .podio, .cifras, .invite, .solace { animation: none !important; }
   }
 </style>

@@ -7,6 +7,7 @@
   import { onMount } from 'svelte';
   import { displayName } from '$lib/stores.js';
   import { stats, evaluateLogros, getProfile, setTituloActivo, progresion } from '$lib/db/supabase-data.js';
+  import Skeleton from './Skeleton.svelte';
 
   let loading = $state(true);
   let error = $state(null);
@@ -200,7 +201,7 @@
   </header>
 
   {#if loading}
-    <div class="skeleton">{#each Array(3) as _}<div class="sk"></div>{/each}</div>
+    <div class="skeleton">{#each Array(3) as _}<Skeleton h="130px" r="18px" />{/each}</div>
   {:else if error}
     <div class="err"><p>No se pudo cargar el perfil.</p><button onclick={load}>Reintentar</button></div>
   {:else}
@@ -505,7 +506,6 @@
 
   /* skeleton / error */
   .skeleton { display: flex; flex-direction: column; gap: 14px; }
-  .sk { height: 130px; border-radius: 18px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   .err { text-align: center; padding: 2rem; color: var(--ink-2); }
   .err button { margin-top: 0.6rem; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; padding: 0.5rem 1rem; cursor: pointer; }
 
@@ -515,8 +515,7 @@
   @keyframes barGrow { from { width: 0; } }
   @keyframes aura { 0%, 100% { opacity: 0.32; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.07); } }
   @keyframes glowpulse { 0%, 100% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.3), 0 6px 22px rgba(232, 96, 44, 0.1); } 50% { box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.5), 0 8px 30px rgba(232, 96, 44, 0.2); } }
-  @keyframes shimmer { to { background-position: -200% 0; } }
   @media (prefers-reduced-motion: reduce) {
-    .carnet, .trait, .medal, .prow, .ps-fill, .p-fill, .avatar .aura, .sk { animation: none !important; }
+    .carnet, .trait, .medal, .prow, .ps-fill, .p-fill, .avatar .aura { animation: none !important; }
   }
 </style>

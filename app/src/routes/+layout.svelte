@@ -55,6 +55,28 @@
     --font-text: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
     --font-data: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
     color-scheme: dark;
+
+    /* ── Motion (Tanda 1 · fundación): TODA animación nueva usa estos tokens ── */
+    --dur-fast: 150ms; /* micro-feedback: hover, press, toggles */
+    --dur-base: 300ms; /* transiciones de UI: sheets, overlays, fades */
+    --dur-slow: 600ms; /* momentos editoriales: reveals, count-ups, hero */
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); /* frena elegante (reveals) */
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* rebote sutil (chips, medallas) */
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1); /* la curva estándar del diseño (sheets) */
+  }
+
+  /* prefers-reduced-motion GLOBAL: mata toda animación/transición no esencial (patrón
+     0.01ms — los estados finales se aplican, el movimiento no). Las animaciones JS (rAF)
+     comprueban prefersReducedMotion() de $lib/motion.js. Toda animación futura lo hereda. */
+  @media (prefers-reduced-motion: reduce) {
+    :global(*),
+    :global(*::before),
+    :global(*::after) {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   :global(*) {
