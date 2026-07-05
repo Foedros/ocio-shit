@@ -57,29 +57,115 @@
   const hasImg = (it) => !!it.imagen_url && !broken.has(it.entrada_id);
   const markBroken = (id) => (broken = new Set(broken).add(id));
 
-  // Ventana perezosa: solo ±WINDOW covers montados.
+  // Ventana perezosa: ±WINDOW+1 covers montados (el +1 cubre el borde durante el glide fraccional).
   let win = $derived.by(() => {
     if (!count) return [];
     const c = Math.min(idx, count - 1);
-    const lo = Math.max(0, c - WINDOW);
-    const hi = Math.min(count - 1, c + WINDOW);
+    const lo = Math.max(0, c - WINDOW - 1);
+    const hi = Math.min(count - 1, c + WINDOW + 1);
     const out = [];
     for (let i = lo; i <= hi; i++) out.push({ it: items[i], off: i - c });
     return out;
   });
 
-  // Transforms del diseño: central plana y grande; laterales en ángulo, empujadas atrás.
+  // Transforms del diseño, CONTINUOS: aceptan offset fraccional (glide) interpolando entre la pose
+  // central (plana, grande) y la lateral (rotY 52°, atrás, 0.86). En |off|≥1 es la fórmula original;
+  // en |off|<1 se funde linealmente — continuo en ±1, así el paso discreto y el glide coinciden.
   function transformFor(off) {
     if (off === 0) return 'translate(-50%,-50%)';
     const abs = Math.abs(off);
     const dir = off < 0 ? 1 : -1;
-    const x = off * SPREAD + dir * -30;
-    return `translate(-50%,-50%) translateX(${x}px) translateZ(${-160 - abs * 60}px) rotateY(${dir * 52}deg) scale(0.86)`;
+    if (abs >= 1) {
+      const x = off * SPREAD + dir * -30;
+      return `translate(-50%,-50%) translateX(${x}px) translateZ(${-160 - abs * 60}px) rotateY(${dir * 52}deg) scale(0.86)`;
+    }
+    const x = off * (SPREAD - 30);
+    return `translate(-50%,-50%) translateX(${x}px) translateZ(${-220 * abs}px) rotateY(${dir * 52 * abs}deg) scale(${1 - 0.14 * abs})`;
   }
-  const opacityFor = (off) => (off === 0 ? 1 : Math.max(0.25, 0.8 - Math.abs(off) * 0.16));
+  const opacityFor = (off) => {
+    const abs = Math.abs(off);
+    return abs < 1 ? 1 - 0.36 * abs : Math.max(0.25, 0.8 - abs * 0.16);
+  };
 
   const move = (d) => (idx = Math.max(0, Math.min(count - 1, idx + d)));
   const onCoverClick = (off, it) => (off === 0 ? openEntryDetail(it.entrada_id) : move(off));
+
+  // ── MOTOR DE GLIDE (rAF) — movimiento continuo para inercia y crucero sostenido ──────────────
+  // frac = desplazamiento fraccional del centro (en carátulas); mientras gliding, las transiciones
+  // CSS se apagan (si no, cada paso las interrumpe a medio camino → trompicones) y el rAF interpola
+  // a 60fps; los enteros se van consolidando en idx. Al final, frac vuelve a 0 exacto (snap).
+  let frac = $state(0);
+  let gliding = $state(false);
+  let raf = null, cruiseDir = 0;
+  const reduceMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+  const commit = (d) => { const next = idx + d; if (next < 0 || next > count - 1) return false; idx = next; return true; };
+  function stopGlide() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = null; cruiseDir = 0; frac = 0; gliding = false;
+  }
+  // Inercia del flick: recorre D carátulas (con signo) con ease-out — arranque vivo, aterrizaje suave.
+  function glideBy(D) {
+    if (!D) return;
+    if (reduceMotion) { for (let k = 0; k < Math.abs(D); k++) if (!commit(Math.sign(D))) break; return; }
+    if (raf) cancelAnimationFrame(raf);
+    gliding = true;
+    const dur = 320 + Math.abs(D) * 150;
+    const t0 = performance.now();
+    let done = 0;
+    const tick = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      const P = D * easeOut(t);
+      while (Math.abs(P - done) >= 1) {
+        const s = Math.sign(P - done);
+        if (!commit(s)) { stopGlide(); return; } // tope del archivo: asienta ahí
+        done += s;
+      }
+      frac = P - done;
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else { raf = null; frac = 0; gliding = false; }
+    };
+    raf = requestAnimationFrame(tick);
+  }
+  // Crucero del sostenido: velocidad CONSTANTE (~2,5 carátulas/s) mientras el dedo aguante.
+  function startCruise(dir) {
+    if (reduceMotion) { cruiseDir = dir; raf = null; commit(dir); const iv = () => { if (cruiseDir) { commit(cruiseDir); rafTimer = setTimeout(iv, 400); } }; let rafTimer = setTimeout(iv, 400); cruiseStopFallback = () => clearTimeout(rafTimer); return; }
+    if (raf) cancelAnimationFrame(raf);
+    gliding = true; cruiseDir = dir;
+    const V = 2.5; // carátulas/s
+    let last = performance.now(), acc = frac;
+    const tick = (now) => {
+      if (!cruiseDir) return;
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      acc += cruiseDir * V * dt;
+      while (Math.abs(acc) >= 1) {
+        const s = Math.sign(acc);
+        if (!commit(s)) { acc = 0; break; } // tope: se queda pegado al extremo
+        acc -= s;
+      }
+      frac = acc;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }
+  let cruiseStopFallback = null;
+  // Asentamiento al soltar el crucero: frac → 0 con ease-out corto (nada de frenazo seco).
+  function stopCruise() {
+    if (cruiseStopFallback) { cruiseStopFallback(); cruiseStopFallback = null; }
+    cruiseDir = 0;
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    const from = frac;
+    if (Math.abs(from) < 0.02 || reduceMotion) { frac = 0; gliding = false; return; }
+    const t0 = performance.now(), dur = 200;
+    const tick = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      frac = from * (1 - easeOut(t));
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else { raf = null; frac = 0; gliding = false; }
+    };
+    raf = requestAnimationFrame(tick);
+  }
 
   // Navegación: rueda (no pasiva, con lock) + drag/swipe (umbral 60px), como el diseño.
   $effect(() => {
@@ -113,14 +199,14 @@
     // preventDefault (bloqueo del scroll vertical, decidido en el PRIMER movimiento — iOS pierde la
     // carrera si esperas); el overflow-lock de html/body cubre cualquier hueco.
     // + AUTO-SCROLL por mantenimiento (~300ms quieto en el 20% lateral) con METÁFORA DE ARRASTRE:
-    //   sostener en el borde IZQUIERDO = seguir arrastrando hacia la izquierda = AVANZAR (y
-    //   viceversa) — continúa el movimiento del arrastre, no es un botón direccional.
-    // + INERCIA (flick): la velocidad al soltar (ventana ~120ms) añade 1..8 pasos extra con
-    //   desaceleración suave; cada paso es discreto → snap garantizado a una carátula.
-    const EDGE = 0.2, HOLD_MS = 300, AUTO_MS = 400, JITTER = 8, STEP_PX = 60;
-    const FLICK_MIN = 0.5, FLICK_K = 2.6, FLICK_MAX = 8; // px/ms → pasos (fuerte ~2-3px/ms → 5-8)
+    //   sostener en el borde IZQUIERDO = seguir arrastrando a la izquierda = AVANZAR (y viceversa).
+    //   El movimiento es un CRUCERO continuo por rAF (velocidad constante), no pasos discretos.
+    // + INERCIA (flick): la velocidad al soltar (ventana ~120ms) lanza un GLIDE continuo de 1..8
+    //   carátulas con ease-out — sin trompicones de transiciones interrumpidas; snap al asentar.
+    const EDGE = 0.2, HOLD_MS = 300, JITTER = 8, STEP_PX = 60;
+    const FLICK_MIN = 0.5, FLICK_K = 2.6, FLICK_MAX = 8; // px/ms → carátulas (fuerte ~2-3px/ms → 5-8)
     let pid = null, tx = 0, ty = 0, taxis = null, ax = 0;
-    let holdTimer = null, autoInt = null, momTimer = null;
+    let holdTimer = null;
     let hist = []; // [{x,t}] últimos ~120ms, para la velocidad del flick
     const lockPage = (on) => {
       document.documentElement.style.overflow = on ? 'hidden' : '';
@@ -128,27 +214,25 @@
     };
     const stopAuto = () => {
       clearTimeout(holdTimer); holdTimer = null;
-      clearInterval(autoInt); autoInt = null;
+      stopCruise(); // asienta frac→0 con ease-out corto (sin frenazo seco)
     };
-    const stopMomentum = () => { clearTimeout(momTimer); momTimer = null; };
     const zoneOf = (x) => {
       const r = el.getBoundingClientRect();
       const rel = (x - r.left) / r.width;
       return rel <= EDGE ? -1 : rel >= 1 - EDGE ? 1 : 0;
     };
     const armHold = (x) => {
-      stopAuto();
+      clearTimeout(holdTimer); holdTimer = null;
+      if (cruiseDir) stopCruise(); // moverse durante el crucero lo corta
       const z = zoneOf(x);
       if (!z) return;
       const dir = -z; // metáfora de arrastre: borde izquierdo (−1) = seguir avanzando (+1)
-      holdTimer = setTimeout(() => {
-        move(dir);
-        autoInt = setInterval(() => move(dir), AUTO_MS);
-      }, HOLD_MS);
+      holdTimer = setTimeout(() => startCruise(dir), HOLD_MS);
     };
     const pd = (e) => {
       if (e.pointerType !== 'touch') return; // ratón/lápiz: fuera (escritorio intacto)
-      stopMomentum(); stopAuto(); // un dedo nuevo corta inercia o restos de auto-scroll
+      stopGlide(); // un dedo nuevo corta en seco inercia o crucero residual
+      clearTimeout(holdTimer); holdTimer = null;
       pid = e.pointerId; taxis = null;
       tx = e.clientX; ty = e.clientY; ax = tx;
       hist = [{ x: tx, t: e.timeStamp }];
@@ -174,24 +258,18 @@
     const pu = (e) => {
       if (e.pointerId !== pid) return;
       pid = null;
-      // solo cuenta como "venía de auto-scroll" si el interval LLEGÓ a correr; un holdTimer aún
-      // pendiente (armado de pasada durante un flick que cruzó la zona de borde) no anula la inercia
-      const veniaDeAuto = !!autoInt;
-      stopAuto(); // SIEMPRE e inmediato: soltar (o touchcancel) mata el auto-scroll
-      if (taxis === 'h' && !veniaDeAuto && hist.length >= 2) {
-        // FLICK: velocidad al soltar → pasos extra con desaceleración (lento = solo el paso del drag)
+      // solo cuenta como "venía de auto-scroll" si el crucero LLEGÓ a correr; un holdTimer aún
+      // pendiente (armado de pasada durante un flick por la zona de borde) no anula la inercia
+      const veniaDeCrucero = cruiseDir !== 0;
+      stopAuto(); // SIEMPRE e inmediato: soltar (o pointercancel) detiene el crucero y asienta
+      if (taxis === 'h' && !veniaDeCrucero && hist.length >= 2) {
+        // FLICK: velocidad al soltar → glide continuo (lento = solo el paso del drag)
         const a = hist[0], b = hist[hist.length - 1];
         const v = (b.x - a.x) / Math.max(1, b.t - a.t); // px/ms; + = dedo hacia la derecha
         if (Math.abs(v) > FLICK_MIN) {
           const dir = v > 0 ? -1 : 1;
-          let steps = Math.min(FLICK_MAX, Math.max(1, Math.round(Math.abs(v) * FLICK_K)));
-          let delay = 90;
-          const kick = () => {
-            move(dir);
-            if (--steps > 0) { delay = Math.round(delay * 1.35); momTimer = setTimeout(kick, delay); }
-            else momTimer = null;
-          };
-          momTimer = setTimeout(kick, 0);
+          const D = Math.min(FLICK_MAX, Math.max(1, Math.round(Math.abs(v) * FLICK_K)));
+          glideBy(dir * D);
         }
       }
       taxis = null; hist = [];
@@ -218,8 +296,8 @@
       el.removeEventListener('pointerup', pu);
       el.removeEventListener('pointercancel', pu);
       el.removeEventListener('touchmove', tmBlock);
-      stopAuto();
-      stopMomentum();
+      clearTimeout(holdTimer);
+      stopGlide();
       lockPage(false);
     };
   });
@@ -244,12 +322,12 @@
   </div>
 {:else}
   <div class="gwrap" style="height:{mobile ? 430 : 540}px">
-    <div class="stage" bind:this={stageEl}>
+    <div class="stage" class:gliding bind:this={stageEl}>
       {#each win as { it, off } (it.entrada_id)}
         <div
           class="cover"
           class:center={off === 0}
-          style="transform:{transformFor(off)}; opacity:{opacityFor(off)}; z-index:{100 - Math.abs(off)}"
+          style="transform:{transformFor(off - frac)}; opacity:{opacityFor(off - frac)}; z-index:{100 - Math.abs(Math.round(off - frac))}"
           role="button"
           tabindex="-1"
           aria-label={it.titulo}
@@ -337,6 +415,11 @@
     will-change: transform, opacity;
     transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.5s;
     transform-style: preserve-3d;
+  }
+  /* Durante el glide (rAF a 60fps) las transiciones CSS se apagan: si no, cada frame las
+     interrumpe a medio camino y el movimiento se siente a trompicones. */
+  .stage.gliding .cover {
+    transition: none;
   }
   .cover.center {
     cursor: pointer;
