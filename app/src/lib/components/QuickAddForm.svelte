@@ -137,6 +137,10 @@
     const btn = formEl?.querySelector('.actions .btn.primary');
     const br = btn?.getBoundingClientRect();
     const burstAt = br ? { x: br.left + br.width / 2, y: br.top + br.height / 2 } : null;
+    // confeti+haptic OPTIMISTAS (§11.46): ANTES del await — el guardado (RPC + refresco del
+    // archivo) congela el main thread y el canvas solo mostraba el final del estallido
+    if (burstAt) confettiBurst(burstAt, CAT_COLOR[categoria]?.c ?? '#F2A65A');
+    haptic(15);
     try {
       const durMinTotal =
         durH !== '' || durMin !== '' ? (Number(durH) || 0) * 60 + (Number(durMin) || 0) : null;
@@ -156,8 +160,6 @@
         }
       });
       showToast(`Entrada guardada${res.obraCreated ? '' : ' · reconsumo ' + res.numReconsumo}`);
-      if (burstAt) confettiBurst(burstAt, CAT_COLOR[categoria]?.c ?? '#F2A65A'); // color de la categoría guardada
-      haptic(15); // confirmación háptica del guardado (silenciosa en iOS)
       reset();
       onsaved?.();
     } catch {

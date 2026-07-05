@@ -78,13 +78,24 @@
     transform: scale(1.2) translateZ(0);
     will-change: transform;
   }
+  /* veladura en rgba PLANO (bug iOS §11.46): color-mix(...transparent) + doble posición
+     renderizaba casi OPACO en WebKit y se comía el arte — rgba es idéntico en ambos motores */
   .cine::after {
     content: '';
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(90deg, color-mix(in srgb, var(--bg) 72%, transparent) 0%, transparent 22% 78%, color-mix(in srgb, var(--bg) 72%, transparent) 100%),
-      linear-gradient(180deg, color-mix(in srgb, var(--bg) 46%, transparent) 0%, color-mix(in srgb, var(--bg) 60%, transparent) 55%, var(--bg) 100%);
+      linear-gradient(90deg, rgba(11, 10, 8, 0.72) 0%, rgba(11, 10, 8, 0) 22%, rgba(11, 10, 8, 0) 78%, rgba(11, 10, 8, 0.72) 100%),
+      linear-gradient(180deg, rgba(11, 10, 8, 0.42) 0%, rgba(11, 10, 8, 0.58) 55%, #0b0a08 100%);
+  }
+  /* el cine entra con fade (se monta DESPUÉS del vuelo — transition.finished, §11.46) */
+  .cine {
+    animation: cine-in var(--dur-base) ease both;
+  }
+  @keyframes cine-in {
+    from {
+      opacity: 0;
+    }
   }
   .body,
   header {

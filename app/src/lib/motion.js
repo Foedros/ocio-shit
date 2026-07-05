@@ -283,13 +283,14 @@ export function tilt(node, params = {}) {
 // botón Guardar. Canvas efímero fixed (pointer-events none) → NO bloquea el guardado ni el
 // cierre del sheet (sobrevive al desmontaje del botón: el caller pasa el PUNTO, no el nodo).
 // Física simple: velocidad radial + gravedad + fade. Con reduced-motion: no-op.
-export function confettiBurst({ x, y }, color, { count = 26, duration = 800 } = {}) {
+export function confettiBurst({ x, y }, color, { count = 60, duration = 800 } = {}) {
   if (typeof document === 'undefined' || prefersReducedMotion()) return;
   const SIZE = 340;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const canvas = document.createElement('canvas');
   canvas.className = 'confetti-burst';
   canvas.dataset.color = color; // verificable en tests
+  canvas.dataset.count = String(count);
   canvas.width = SIZE * dpr;
   canvas.height = SIZE * dpr;
   canvas.style.cssText = `position:fixed;left:${x - SIZE / 2}px;top:${y - SIZE / 2}px;width:${SIZE}px;height:${SIZE}px;pointer-events:none;z-index:200;`;
@@ -354,6 +355,11 @@ export function confettiBurst({ x, y }, color, { count = 26, duration = 800 } = 
 // Fallback LIMPIO: sin API (Safari iOS <18), con reduced-motion o si el origen ya no está
 // montado, `apply` corre directo (fade/sheet estándar — la navegación jamás se rompe).
 let flyOrigin = null;
+// Promesa del ÚLTIMO vuelo: quien monte capas pesadas sobre el detalle (p. ej. el modo cine,
+// blur de 26px) espera a transition.finished — el vuelo corre limpio y el blur entra después
+// con fade (§11.46, bug de iOS). Sin vuelo pendiente, resuelve al instante.
+let flightSettle = Promise.resolve();
+export const whenFlightSettled = () => flightSettle;
 
 const vtAvailable = () =>
   typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !prefersReducedMotion();
@@ -369,6 +375,11 @@ export async function flyOpen(el, apply) {
     return;
   }
   el.style.viewTransitionName = 'cover-fly';
+  void el.offsetWidth; // flush de estilo/layout: Safari 18 debe VER el nombre antes de capturar
+  // el sheet móvil no compite con su animación de entrada durante el vuelo (html.vt-fly)
+  document.documentElement.classList.add('vt-fly');
+  let release;
+  flightSettle = new Promise((r) => (release = r));
   try {
     const vt = document.startViewTransition(async () => {
       el.style.viewTransitionName = ''; // el nombre pasa al cover del detalle (único por estado)
@@ -377,6 +388,9 @@ export async function flyOpen(el, apply) {
     await vt.finished;
   } catch {
     el.style.viewTransitionName = '';
+  } finally {
+    document.documentElement.classList.remove('vt-fly');
+    release();
   }
 }
 

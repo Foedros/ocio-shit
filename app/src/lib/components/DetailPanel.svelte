@@ -3,7 +3,7 @@
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
   import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction, buscarCaratula, setImagenAction, testImage } from '$lib/boot-supabase.js';
-  import { confettiBurst, tilt, haptic } from '$lib/motion.js';
+  import { confettiBurst, tilt, haptic, whenFlightSettled } from '$lib/motion.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS, generoLabel } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -48,6 +48,23 @@
     covTesting = false;
     covError = '';
     covManual = '';
+  });
+
+  // MODO CINE diferido (§11.46, bug de iOS): la capa cine (blur 26px) se monta DESPUÉS de que
+  // el vuelo asiente (transition.finished) — la View Transition no rasteriza el blur en pleno
+  // vuelo y el cine entra con fade justo después. Sin vuelo, resuelve al instante.
+  let cineOn = $state(false);
+  $effect(() => {
+    const d = $detail;
+    cineOn = false;
+    if (!d) return;
+    let live = true;
+    whenFlightSettled().then(() => {
+      if (live) cineOn = true;
+    });
+    return () => {
+      live = false;
+    };
   });
 
   // Una búsqueda puede tardar segundos (cold start + fuentes): si mientras tanto se cerró el
@@ -110,6 +127,10 @@
     // punto del confeti ANTES del await (la acción recarga el detalle y el botón se desmonta)
     const br = ev?.currentTarget?.getBoundingClientRect();
     const burstAt = br ? { x: br.left + br.width / 2, y: br.top + br.height / 2 } : null;
+    // confeti+haptic OPTIMISTAS (§11.46): ANTES del await — el guardado (RPC + re-render)
+    // congela el main thread y el canvas solo mostraba el final del estallido
+    if (burstAt) confettiBurst(burstAt, col(e.categoria).c);
+    haptic(15);
     try {
       await updateEntryAction(e.entrada_id, {
         valoracion: edVal === '' ? null : Number(edVal),
@@ -117,8 +138,6 @@
         fecha: edFecha || null, // vacío → NULL (quitar la fecha)
         duracion_min
       });
-      if (burstAt) confettiBurst(burstAt, col(e.categoria).c); // color de la categoría
-      haptic(15); // confirmación háptica del guardado (silenciosa en iOS)
       editing = false; // la acción recarga el detalle con los valores nuevos
     } catch {
       /* el toast de error lo lanza la acción; nos quedamos en edición */
@@ -131,7 +150,7 @@
   eyebrow={$detail?.kind === 'obra' ? 'Obra' : 'Entrada'}
   title={$detail?.kind === 'obra' ? $detail.data.obra.titulo : ($detail?.data?.titulo ?? '')}
   onclose={closeDetail}
-  backdrop={$detail?.kind === 'entrada' ? ($detail.data.imagen_url ?? null) : ($detail?.data?.obra?.imagen_url ?? null)}
+  backdrop={!cineOn ? null : $detail?.kind === 'entrada' ? ($detail.data.imagen_url ?? null) : ($detail?.data?.obra?.imagen_url ?? null)}
 >
   {#snippet coverPicker()}
     <div class="cov-picker">
