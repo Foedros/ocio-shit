@@ -260,6 +260,14 @@ export async function setImagen(obraId, url) {
   return data; // { ok, obra_id?, imagen_url?, reason? }
 }
 
+// Constelación de creadores (Perfil · ADN → pantalla completa): el cielo top-N + búsqueda.
+// { total, creadores: [{id, nombre, n, cat, nota, obras: [{id,titulo,categoria,anio,img,nota}]}] }
+export async function constelacion({ limit = 120, buscar = null } = {}) {
+  const { data, error } = await supabase.rpc('ocio_constelacion', { p_limit: limit, p_buscar: buscar });
+  fail(error, 'constelacion');
+  return data;
+}
+
 // Timeline (pantalla 04): macro = volumen+mezcla por AÑO DE ENTRADA (rápido, una RPC); el detalle
 // de un año (sus entradas, para agrupar por mes + clúster de votos) se pide al seleccionarlo.
 export async function timelineMacro() {

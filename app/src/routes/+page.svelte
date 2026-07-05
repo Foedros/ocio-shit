@@ -14,6 +14,7 @@
   import QuickAddForm from '$lib/components/QuickAddForm.svelte';
   import Splash from '$lib/components/Splash.svelte';
   import PullToRefresh from '$lib/components/PullToRefresh.svelte';
+  import Constelacion from '$lib/components/Constelacion.svelte';
   import Login from '$lib/components/Login.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -199,6 +200,9 @@
     </svg>
   </button>
 {/if}
+
+<!-- Constelación (Tanda 8): pantalla completa FUERA de .page (§11.43); bajo los sheets (z-50<60) -->
+<Constelacion />
 
 <!-- MÓVIL: drawer lateral con las 9 secciones + "Cuenta y datos". Escritorio: oculto (CSS). -->
 <div class="drawer" class:open={drawerOpen} aria-hidden={!drawerOpen}>

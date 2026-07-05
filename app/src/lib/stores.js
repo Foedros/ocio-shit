@@ -36,6 +36,10 @@ export const role = writable('init'); // 'leader' | 'follower' | 'init'
 export const archiveEntries = writable([]); // current filtered list of entradas
 export const archiveFilters = writable({ categoria: '', origen: '', fecha_tipo: '', search: '', en_curso: false, con_resena: false });
 export const archiveView = writable('lista'); // 'lista' | 'galeria' — el toggle del Diario (persiste al navegar)
+// Constelación de creadores (Tanda 8): overlay a pantalla completa. Vive como store porque el
+// botón está en el Perfil (dentro de .page) pero el overlay se monta FUERA del wrapper con
+// parallax (lección del FAB §11.43: will-change/transform crean containing block de los fixed).
+export const constelOpen = writable(false);
 export const filterOpts = writable({ categorias: [], origenes: [], fecha_tipos: [] });
 export const detail = writable(null); // { kind:'obra'|'entrada', data } selected for the detail panel
 export const colecciones = writable([]); // list of collections with n_obras

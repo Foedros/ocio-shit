@@ -580,6 +580,58 @@ begin
 end;
 $$;
 
+-- ── CONSTELACIÓN DE CREADORES (Perfil · ADN → pantalla completa) ────────────────────────────
+-- El cielo: top N creadores por nº de obras (MISMO conteo que ocio_stats.creadores_top:
+-- count(distinct obra_id) sobre obra_creador) con su categoría dominante, nota media y sus
+-- obras (para satélites + panel). p_buscar añade al set los creadores que casen (aunque no
+-- estén en el top) → el buscador del cielo llega a cualquiera de los ~3.000. SECURITY INVOKER
+-- (RLS por owner_id), STABLE, authenticated-only. Una llamada = todo el grafo.
+create or replace function ocio_constelacion(p_limit integer default 120, p_buscar text default null)
+  returns jsonb language plpgsql security invoker stable set search_path = public
+as $$
+declare v_res jsonb; v_total integer;
+begin
+  select count(distinct persona_id) into v_total from obra_creador;
+  with base as (
+    select oc.persona_id, count(distinct oc.obra_id)::int as n
+    from obra_creador oc
+    group by 1
+  ),
+  top as (
+    select persona_id, n from (
+      (select persona_id, n from base order by n desc, persona_id limit least(greatest(coalesce(p_limit,120),10),240))
+      union
+      (select b.persona_id, b.n from base b join persona p on p.id = b.persona_id
+        where p_buscar is not null and length(trim(p_buscar)) >= 2 and p.nombre ilike '%' || trim(p_buscar) || '%'
+        order by b.n desc limit 8)
+    ) u
+  ),
+  ob as (
+    select distinct t.persona_id, o.id, o.titulo, o.categoria, o.anio_obra, o.imagen_url,
+           (select round(avg(e.valoracion)::numeric, 1) from entrada e where e.obra_id = o.id and e.valoracion is not null) as nota
+    from top t
+    join obra_creador oc on oc.persona_id = t.persona_id
+    join obra o on o.id = oc.obra_id
+  )
+  select jsonb_agg(jsonb_build_object(
+      'id', p.id,
+      'nombre', p.nombre,
+      'n', t.n,
+      'cat', (select o2.categoria from ob o2 where o2.persona_id = t.persona_id
+              group by o2.categoria order by count(*) desc, o2.categoria limit 1),
+      'nota', (select round(avg(o3.nota)::numeric, 1) from ob o3 where o3.persona_id = t.persona_id and o3.nota is not null),
+      'obras', (select coalesce(jsonb_agg(jsonb_build_object(
+                  'id', o4.id, 'titulo', o4.titulo, 'categoria', o4.categoria,
+                  'anio', o4.anio_obra, 'img', o4.imagen_url, 'nota', o4.nota)
+                  order by o4.nota desc nulls last, o4.titulo), '[]'::jsonb)
+                from (select * from ob o5 where o5.persona_id = t.persona_id
+                      order by o5.nota desc nulls last, o5.titulo limit 40) o4)
+    ) order by t.n desc) into v_res
+  from top t join persona p on p.id = t.persona_id;
+  return jsonb_build_object('total', v_total, 'creadores', coalesce(v_res, '[]'::jsonb));
+end;
+$$;
+
 -- ── HOME / DASHBOARD (01): el aterrizaje, en UNA RPC ────────────────────────────────────────
 -- Síntesis + puertas. REUTILIZA las RPCs existentes (no recalcula): llama por dentro a
 -- ocio_progresion()/ocio_hall()/ocio_stats() y extrae SOLO los slivers (nivel/clase, cumbre,
@@ -882,6 +934,7 @@ revoke all on function ocio_progresion()            from public, anon;
 revoke all on function ocio_set_canon(text, boolean, text, text) from public, anon;
 revoke all on function ocio_set_en_curso(text, boolean) from public, anon;
 revoke all on function ocio_set_imagen(text, text)  from public, anon;
+revoke all on function ocio_constelacion(integer, text) from public, anon;
 revoke all on function ocio_timeline_macro()        from public, anon;
 revoke all on function ocio_timeline_year(integer)  from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
@@ -901,5 +954,6 @@ grant  execute on function ocio_progresion()        to authenticated;
 grant  execute on function ocio_set_canon(text, boolean, text, text) to authenticated;
 grant  execute on function ocio_set_en_curso(text, boolean) to authenticated;
 grant  execute on function ocio_set_imagen(text, text) to authenticated;
+grant  execute on function ocio_constelacion(integer, text) to authenticated;
 grant  execute on function ocio_timeline_macro()    to authenticated;
 grant  execute on function ocio_timeline_year(integer) to authenticated;

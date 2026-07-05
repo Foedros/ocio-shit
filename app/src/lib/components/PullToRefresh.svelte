@@ -41,8 +41,8 @@
     if (window.matchMedia('(min-width: 701px)').matches) return; // solo móvil
     if (window.scrollY > 0) return; // solo desde el tope
     const t = e.target;
-    // dentro de un sheet/drawer nunca; dentro de un scroller interno solo si está en su tope
-    if (t.closest?.('.sheet, .drawer, nav.panel')) return;
+    // dentro de un sheet/drawer/constelación nunca; en un scroller interno solo si está en su tope
+    if (t.closest?.('.sheet, .drawer, nav.panel, .constel')) return;
     const sc = t.closest?.('.viewport');
     if (sc && sc.scrollTop > 0) return;
     y0 = e.touches[0].clientY;

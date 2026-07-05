@@ -8,6 +8,7 @@
   import { displayName } from '$lib/stores.js';
   import { stats, evaluateLogros, getProfile, setTituloActivo, progresion, syncUnlocks } from '$lib/db/supabase-data.js';
   import { haptic } from '$lib/motion.js';
+  import { constelOpen } from '$lib/stores.js';
   import Skeleton from './Skeleton.svelte';
 
   let loading = $state(true);
@@ -310,6 +311,18 @@
           <div class="t-body"><div class="t-title">{a.t}</div><div class="t-desc">{a.d}</div></div>
         </div>
       {/each}
+      <!-- La pieza mayor (Tanda 8): el ADN como cielo navegable — abre el overlay a pantalla
+           completa (montado en +page, FUERA del wrapper con parallax, §11.43) -->
+      <button class="trait constel-card" onclick={() => constelOpen.set(true)}>
+        <div class="t-ic constel-ic" aria-hidden="true">
+          <span class="star s1"></span><span class="star s2"></span><span class="star s3"></span>
+          <span class="star s4"></span><span class="star s5"></span>
+        </div>
+        <div class="t-body">
+          <div class="t-title">Constelación de creadores</div>
+          <div class="t-desc">Tu cielo cultural: {fmt(st?.corpus?.creadores)} creadores como estrellas. <span class="constel-cta">Ver constelación →</span></div>
+        </div>
+      </button>
     </div>
 
     <!-- ===== EL GABINETE (galería de logros) ===== -->
@@ -461,6 +474,17 @@
   .adn { display: grid; grid-template-columns: 1fr; gap: 10px; }
   @media (min-width: 640px) { .adn { grid-template-columns: 1fr 1fr 1fr; } }
   .trait { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; gap: 13px; align-items: center; animation: fadeUp 0.5s both; transition: transform 0.3s, border-color 0.3s; }
+  /* tarjeta-puerta de la Constelación (Tanda 8): mini-cielo + CTA */
+  button.constel-card { cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
+  button.constel-card:hover { border-color: #8a6f4a; transform: translateY(-1px); }
+  .constel-ic { position: relative; background: radial-gradient(120% 120% at 50% 0%, #12100b, #080705) !important; border-color: #2e2820 !important; overflow: hidden; }
+  .constel-ic .star { position: absolute; border-radius: 50%; }
+  .constel-ic .s1 { width: 7px; height: 7px; background: #c75d52; top: 9px; left: 10px; box-shadow: 0 0 8px #c75d52aa; }
+  .constel-ic .s2 { width: 5px; height: 5px; background: #9580b0; top: 24px; left: 28px; box-shadow: 0 0 7px #9580b0aa; }
+  .constel-ic .s3 { width: 4px; height: 4px; background: #c9a23f; top: 30px; left: 8px; }
+  .constel-ic .s4 { width: 3px; height: 3px; background: #7e8f5b; top: 7px; left: 30px; }
+  .constel-ic .s5 { width: 3px; height: 3px; background: #5b9298; top: 19px; left: 18px; }
+  .constel-cta { color: var(--accent-ink); }
   .trait:hover { transform: translateY(-3px); border-color: var(--line-strong); }
   .t-ic { width: 42px; height: 42px; border-radius: 12px; border: 1px solid; display: flex; align-items: center; justify-content: center; flex: none; }
   .t-title { font-family: var(--font-display); font-size: 18px; color: var(--ink); line-height: 1.05; }
