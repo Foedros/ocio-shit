@@ -3,7 +3,7 @@
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
   import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction, buscarCaratula, setImagenAction, testImage } from '$lib/boot-supabase.js';
-  import { confettiBurst } from '$lib/motion.js';
+  import { confettiBurst, tilt } from '$lib/motion.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS, generoLabel } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -189,7 +189,10 @@
       <!-- DESTINO del vuelo (view-transition-name compartido con la carátula tocada) + pieza
            central del modo cine (flota sobre el fondo desenfocado) -->
       <div class="d-cover">
-        <img src={e.imagen_url} alt="Carátula de {e.titulo}" loading="lazy" draggable="false" style="view-transition-name: cover-fly" />
+        <!-- tilt 3D holográfico (Tanda 5): hover/dedo-quieto; el brillo lo inyecta la acción -->
+        <div class="holo" use:tilt>
+          <img src={e.imagen_url} alt="Carátula de {e.titulo}" loading="lazy" draggable="false" style="view-transition-name: cover-fly" />
+        </div>
       </div>
     {/if}
     <div class="chip-row">
@@ -330,18 +333,25 @@
 </Sheet>
 
 <style>
-  /* Cover del detalle (destino del vuelo + protagonista del modo cine) */
+  /* Cover del detalle (destino del vuelo + protagonista del modo cine + tilt holográfico) */
   .d-cover {
     display: flex;
     justify-content: center;
     margin: 0.3rem 0 1.1rem;
   }
+  .d-cover .holo {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden; /* confina el brillo especular */
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+    max-width: 85%;
+    will-change: transform;
+  }
   .d-cover img {
     height: 200px;
-    max-width: 85%;
+    max-width: 100%;
     object-fit: contain;
     border-radius: 10px;
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
     display: block;
   }
   .chip-row {

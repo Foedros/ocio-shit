@@ -81,6 +81,29 @@
     animation-duration: var(--dur-base);
   }
 
+  /* Brillo especular del tilt holográfico (Tanda 5, elemento creado por la acción tilt()):
+     gradiente PRE-HORNEADO al 200% que se mueve SOLO con translate3d (compositor puro, cero
+     repaints — ni del blur del modo cine). El padre lo confina (overflow + border-radius). */
+  :global(.holo-shine) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 200%;
+    height: 200%;
+    pointer-events: none;
+    background: radial-gradient(
+      circle at 50% 50%,
+      rgba(255, 244, 222, 0.34) 0%,
+      rgba(255, 244, 222, 0.12) 26%,
+      transparent 52%
+    );
+    /* SIN mix-blend-mode: obligaría a re-componer el grupo entero cada frame (caro con el
+       blur del modo cine debajo); alpha normal = compositor puro */
+    opacity: 0;
+    transition: opacity var(--dur-fast) ease;
+    will-change: transform, opacity;
+  }
+
   /* prefers-reduced-motion GLOBAL: mata toda animación/transición no esencial (patrón
      0.01ms — los estados finales se aplican, el movimiento no). Las animaciones JS (rAF)
      comprueban prefersReducedMotion() de $lib/motion.js. Toda animación futura lo hereda. */

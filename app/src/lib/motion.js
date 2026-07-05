@@ -103,6 +103,165 @@ function getObserver(threshold) {
   return o;
 }
 
+// ── Tilt 3D holográfico (Tanda 5) ────────────────────────────────────────────────────────
+// Acción para carátulas protagonistas (detalle + central de la Galería; NO el grid): rota
+// sutilmente en 3D siguiendo cursor/dedo (rotateX/Y máx ~8°, perspective) con un BRILLO
+// especular que recorre la superficie. Rendimiento: SOLO transform+opacity — el brillo es
+// un gradiente PRE-HORNEADO al 200% movido con translate3d (cero repaints, ni del blur del
+// modo cine); listeners passive; UN rAF por instancia (muelle propio, se para al asentar).
+// Táctil: solo con dedo QUIETO ~150ms (si el dedo se desplaza antes o después, se cancela y
+// el swipe/scroll siguen suyos — nunca preventDefault). Reduced-motion: no-op.
+export function tilt(node, params = {}) {
+  if (typeof window === 'undefined' || prefersReducedMotion()) return {};
+  let { enabled = true, max = 8, touchDelay = 150, slop = 10 } = typeof params === 'object' ? params : {};
+
+  const shine = document.createElement('div');
+  shine.className = 'holo-shine';
+  if (getComputedStyle(node).position === 'static') node.style.position = 'relative';
+  node.appendChild(shine);
+
+  let cur = { x: 0, y: 0 };
+  let vel = { x: 0, y: 0 };
+  let tgt = { x: 0, y: 0 };
+  let sTgt = { x: 0.5, y: 0.5 };
+  let sCur = { x: 0.5, y: 0.5 };
+  let active = false;
+  let raf = null;
+
+  const apply = () => {
+    node.style.transform = `perspective(650px) rotateX(${cur.x.toFixed(3)}deg) rotateY(${cur.y.toFixed(3)}deg)`;
+    shine.style.transform = `translate3d(${((sCur.x - 1) * 50).toFixed(2)}%, ${((sCur.y - 1) * 50).toFixed(2)}%, 0)`;
+  };
+  const tick = () => {
+    const K = 0.16, D = 0.74; // muelle: rigidez + amortiguación
+    let energy = 0;
+    for (const a of ['x', 'y']) {
+      vel[a] = (vel[a] + (tgt[a] - cur[a]) * K) * D;
+      cur[a] += vel[a];
+      energy += Math.abs(vel[a]) + Math.abs(tgt[a] - cur[a]);
+      sCur[a === 'x' ? 'y' : 'x'] += (sTgt[a === 'x' ? 'y' : 'x'] - sCur[a === 'x' ? 'y' : 'x']) * 0.25;
+    }
+    apply();
+    if (active || energy > 0.01) raf = requestAnimationFrame(tick);
+    else {
+      cur = { ...tgt };
+      apply();
+      raf = null;
+    }
+  };
+  const wake = () => {
+    if (raf == null) raf = requestAnimationFrame(tick);
+  };
+
+  function aim(clientX, clientY) {
+    const r = node.getBoundingClientRect();
+    const fx = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    const fy = Math.max(0, Math.min(1, (clientY - r.top) / r.height));
+    tgt = { x: -(fy - 0.5) * 2 * max, y: (fx - 0.5) * 2 * max };
+    sTgt = { x: fx, y: fy };
+    wake();
+  }
+  function rest() {
+    active = false;
+    tgt = { x: 0, y: 0 };
+    sTgt = { x: 0.5, y: 0.5 };
+    shine.style.opacity = '0';
+    wake();
+  }
+  function engage() {
+    active = true;
+    shine.style.opacity = '1';
+    wake();
+  }
+
+  // ── ratón: hover directo ──
+  const onEnter = (e) => {
+    if (!enabled || e.pointerType === 'touch') return;
+    engage();
+    aim(e.clientX, e.clientY);
+  };
+  const onMove = (e) => {
+    if (e.pointerType === 'touch') {
+      touchMove(e);
+      return;
+    }
+    if (active) aim(e.clientX, e.clientY);
+  };
+  const onLeave = (e) => {
+    if (e.pointerType === 'touch') return;
+    rest();
+  };
+
+  // ── táctil: dedo quieto ~150ms activa; desplazarse cancela (el swipe manda) ──
+  let tTimer = null;
+  let t0 = null;
+  const onDown = (e) => {
+    if (!enabled || e.pointerType !== 'touch') return;
+    t0 = { x: e.clientX, y: e.clientY };
+    clearTimeout(tTimer);
+    tTimer = setTimeout(() => {
+      if (!t0) return;
+      engage();
+      aim(t0.x, t0.y);
+    }, touchDelay);
+  };
+  function touchMove(e) {
+    if (!t0) return;
+    const d = Math.hypot(e.clientX - t0.x, e.clientY - t0.y);
+    if (!active) {
+      if (d > slop) {
+        clearTimeout(tTimer); // empezó un swipe/scroll antes de armar → nunca activar
+        t0 = null;
+      }
+      return;
+    }
+    if (d > slop * 2.2) {
+      t0 = null;
+      rest(); // desplazamiento real tras activar → el gesto de desplazar manda
+      return;
+    }
+    aim(e.clientX, e.clientY);
+  }
+  const onUp = (e) => {
+    if (e.pointerType !== 'touch') return;
+    clearTimeout(tTimer);
+    t0 = null;
+    if (active) rest();
+  };
+
+  const OPT = { passive: true };
+  node.addEventListener('pointerenter', onEnter, OPT);
+  node.addEventListener('pointermove', onMove, OPT);
+  node.addEventListener('pointerleave', onLeave, OPT);
+  node.addEventListener('pointerdown', onDown, OPT);
+  node.addEventListener('pointerup', onUp, OPT);
+  node.addEventListener('pointercancel', onUp, OPT);
+
+  return {
+    update(p) {
+      const np = typeof p === 'object' && p !== null ? p : {};
+      const was = enabled;
+      ({ enabled = true, max = 8, touchDelay = 150, slop = 10 } = np);
+      if (was && !enabled) {
+        clearTimeout(tTimer);
+        t0 = null;
+        rest();
+      }
+    },
+    destroy() {
+      clearTimeout(tTimer);
+      cancelAnimationFrame(raf);
+      node.removeEventListener('pointerenter', onEnter, OPT);
+      node.removeEventListener('pointermove', onMove, OPT);
+      node.removeEventListener('pointerleave', onLeave, OPT);
+      node.removeEventListener('pointerdown', onDown, OPT);
+      node.removeEventListener('pointerup', onUp, OPT);
+      node.removeEventListener('pointercancel', onUp, OPT);
+      shine.remove();
+    }
+  };
+}
+
 // ── Confeti de categoría (Tanda 4) ───────────────────────────────────────────────────────
 // Micro-explosión de partículas del color de la categoría al guardar una entrada, desde el
 // botón Guardar. Canvas efímero fixed (pointer-events none) → NO bloquea el guardado ni el

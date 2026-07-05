@@ -7,6 +7,7 @@
   // tipográfico OBLIGATORIO en dos casos: URL NULL y error de carga (onerror) — pueden romperse.
   import { archiveEntries, detail } from '$lib/stores.js';
   import { openEntryDetail } from '$lib/boot-supabase.js';
+  import { tilt } from '$lib/motion.js';
   import { CATEGORIA_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion } from '$lib/format.js';
@@ -341,7 +342,9 @@
           onclick={(e) => onCoverClick(off, it, e.currentTarget)}
           onkeydown={(e) => e.key === 'Enter' && onCoverClick(off, it, e.currentTarget)}
         >
-          <div class="cover-inner" style="width:{wOf(it)}px;height:{H}px">
+          <!-- tilt holográfico SOLO en la central (off 0), nunca en laterales ni en el reflejo;
+               el gesto convive con el swipe: dedo quieto ~150ms activa, desplazarse cancela -->
+          <div class="cover-inner" style="width:{wOf(it)}px;height:{H}px" use:tilt={{ enabled: off === 0 && !gliding }}>
             {#if hasImg(it)}
               <img src={it.imagen_url} alt={it.titulo} loading="lazy" draggable="false" onerror={() => markBroken(it.imagen_url)} />
               <span class="sheen"></span>
