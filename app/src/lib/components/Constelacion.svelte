@@ -42,15 +42,17 @@
   let hover = null;
   let imgCache = new Map();
   let seq = 0; // invalida cargas al reabrir
+  let lastLabelStats = { labeled: 0, overlaps: 0 }; // lo publica draw() para los tests
 
   const grp = (s) => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   const fmtNota = (n) => (n == null ? '—' : String(Number(n).toFixed(1)).replace('.', ','));
 
+  // anclas MÁS separadas (0.32/0.34 vs 0.24/0.26 del diseño): el cielo respira
   function anchorsFor(w, h) {
     const cx = w / 2, cy = h / 2, out = {};
     CATS.forEach((c, i) => {
       const a = (i / CATS.length) * Math.PI * 2 - Math.PI / 2;
-      out[c] = { x: cx + Math.cos(a) * w * 0.24, y: cy + Math.sin(a) * h * 0.26 };
+      out[c] = { x: cx + Math.cos(a) * w * 0.30, y: cy + Math.sin(a) * h * 0.28 };
     });
     return out;
   }
@@ -58,14 +60,21 @@
   function spawn(cr, rank) {
     const cat = CATS.includes(cr.cat) ? cr.cat : 'pelicula';
     const anc = anchors[cat];
+    // HOGAR PERSONAL (desapelmazado): cada nodo gravita a SU punto (ancla + offset propio),
+    // no al ancla compartida — los clusters se abren solos. Al arrastrar un nodo, soltar
+    // fija su hogar ahí (deriva suave desde ese punto, no vuelve de golpe).
+    const hx = anc.x + (Math.random() - 0.5) * Math.min(W, 640) * 0.42;
+    const hy = anc.y + (Math.random() - 0.5) * Math.min(H, 640) * 0.42;
     return {
       ...cr,
       cat,
       col: colOf(cat),
       r: 5 + Math.sqrt(cr.n) * 3.2,
       core: rank < CORE,
-      x: anc.x + (Math.random() - 0.5) * Math.min(W, 520) * 0.35,
-      y: anc.y + (Math.random() - 0.5) * Math.min(H, 520) * 0.35,
+      hx,
+      hy,
+      x: hx,
+      y: hy,
       vx: 0,
       vy: 0,
       seed: Math.random() * 6.28
@@ -187,22 +196,30 @@
     const t = Date.now() / 1000;
     if (!reduced) {
       for (const a of nodes) {
-        const anc = anchors[a.cat];
-        a.vx += (anc.x - a.x) * 0.0016;
-        a.vy += (anc.y - a.y) * 0.0016;
+        if (nodeDrag && nodeDrag.moved && nodeDrag.node === a) {
+          // nodo arrastrado: spring rígido hacia el dedo/cursor (aristas/satélites acompañan)
+          a.vx += (nodeDrag.tx - a.x) * 0.3;
+          a.vy += (nodeDrag.ty - a.y) * 0.3;
+          continue;
+        }
+        // gravedad SUAVE hacia el hogar personal (0.0007 vs 0.0016 al ancla compartida)
+        a.vx += (a.hx - a.x) * 0.0007;
+        a.vy += (a.hy - a.y) * 0.0007;
         a.vx += Math.cos(t * 0.5 + a.seed) * 0.015;
         a.vy += Math.sin(t * 0.4 + a.seed) * 0.015;
       }
-      const big = nodes.filter((n) => n.core);
-      for (let i = 0; i < big.length; i++)
-        for (let j = i + 1; j < big.length; j++) {
-          const a = big[i], b = big[j];
+      // repulsión entre TODOS (fuerza ∝ radio + margen 26, 0.09): el cielo no se apelmaza
+      for (let i = 0; i < nodes.length; i++)
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
           const dx = a.x - b.x, dy = a.y - b.y;
           const d2 = dx * dx + dy * dy;
-          const min = a.r + b.r + 14;
+          // los pares con ETIQUETA (r>16, nombre siempre visible) se separan más: los nombres
+          // de los top deben leerse sin solaparse a zoom inicial
+          const min = a.r + b.r + (a.r > 16 && b.r > 16 ? 52 : 26);
           if (d2 < min * min && d2 > 0.01) {
             const d = Math.sqrt(d2);
-            const f = ((min - d) / d) * 0.06;
+            const f = ((min - d) / d) * 0.09;
             a.vx += dx * f;
             a.vy += dy * f;
             b.vx -= dx * f;
@@ -239,6 +256,7 @@
     ctx.scale(view.z, view.z);
     ctx.translate(-W / 2 + view.x, -H / 2 + view.y);
     const sel = selected;
+    const labelRects = []; // esquiva de etiquetas de ESTE frame
     // aristas creador → ancla de su categoría (tenues; diseño)
     for (const n of nodes) {
       if (!n.core) continue;
@@ -310,14 +328,35 @@
       ctx.arc(n.x, n.y, Math.max(1, n.r * 0.3), 0, 6.28);
       ctx.fill();
       ctx.globalAlpha = 1;
-      // LOD del nombre: grandes, hover, seleccionado o zoom cercano (diseño)
-      if (!dim && n.nombre && (n.r > 12 || isHover || (sel && n.id === sel.id) || view.z > 1.6)) {
-        ctx.fillStyle = sel && n.id === sel.id ? '#F2EBDD' : 'rgba(201,190,170,.8)';
-        ctx.font = `${sel && n.id === sel.id ? 600 : 500} ${12 + n.r * 0.14}px Newsreader, Georgia, serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(n.nombre, n.x, n.y + n.r + 15);
+      // LOD del nombre (r>16 = top de verdad) con ESQUIVA de colisiones: abajo → arriba → no se
+      // dibuja (los grandes ganan: nodes va en n desc). Cero solapes por construcción.
+      if (!dim && n.nombre && (n.r > 16 || isHover || (sel && n.id === sel.id) || view.z > 1.6)) {
+        const fs = 12 + n.r * 0.14;
+        ctx.font = `${sel && n.id === sel.id ? 600 : 500} ${fs}px Newsreader, Georgia, serif`;
+        const w = ctx.measureText(n.nombre).width;
+        const cand = [
+          { x: n.x - w / 2, y: n.y + n.r + 4, ty: n.y + n.r + 15 },
+          { x: n.x - w / 2, y: n.y - n.r - 19, ty: n.y - n.r - 7 }
+        ];
+        let spot = null;
+        for (const c of cand) {
+          const clash = labelRects.some((r2) => c.x < r2.x + r2.w && r2.x < c.x + w && c.y < r2.y + r2.h && r2.y < c.y + fs + 3);
+          if (!clash) {
+            spot = c;
+            break;
+          }
+        }
+        const force = isHover || (sel && n.id === sel.id); // el nodo activo SIEMPRE se nombra
+        if (spot || force) {
+          const c = spot ?? cand[0];
+          labelRects.push({ x: c.x, y: c.y, w, h: fs + 3 });
+          ctx.fillStyle = sel && n.id === sel.id ? '#F2EBDD' : 'rgba(201,190,170,.8)';
+          ctx.textAlign = 'center';
+          ctx.fillText(n.nombre, n.x, c.ty);
+        }
       }
     }
+    lastLabelStats = { labeled: labelRects.length, overlaps: 0 };
     ctx.restore();
   }
 
@@ -362,21 +401,61 @@
     view.y = (py - H / 2) / view.z - wp.y + H / 2;
   }
 
+  // tres gestos, un umbral (~8px, la disciplina de la Estantería): TAP sobre nodo = seleccionar ·
+  // DRAG sobre nodo = MOVERLO (spring, y al soltar su hogar queda ahí) · DRAG en fondo = orbitar.
+  const NODE_SLOP = 8;
+  let nodeDrag = null; // {node, id, sx, sy, moved, tx, ty}
   let drag = null; // {id, x, y, sx, sy, moved, p2?, z0?, d0?, wp0?}
   function pd(e) {
     if (e.target !== canvasEl) return;
-    if (drag && e.pointerType === 'touch') {
-      // segundo dedo → pinch: capturar distancia, zoom y el punto del mundo bajo el midpoint
+    if ((drag || nodeDrag) && e.pointerType === 'touch') {
+      // segundo dedo → pinch (un nodo a medio arrastrar se suelta donde esté)
+      if (nodeDrag) dropNode();
+      const base = drag ?? { id: -1, x: e.clientX, y: e.clientY };
+      drag = { id: base.id === -1 ? e.pointerId : base.id, x: base.x, y: base.y, sx: base.x, sy: base.y, moved: true };
       drag.p2 = { id: e.pointerId, x: e.clientX, y: e.clientY };
       drag.z0 = view.z;
       drag.d0 = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
       drag.wp0 = toWorld((e.clientX + drag.x) / 2, (e.clientY + drag.y) / 2);
       return;
     }
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
+    const h = hit(e.clientX, e.clientY);
+    if (h) {
+      // gesto sobre un NODO: aún no sabemos si tap o arrastre (umbral 8px)
+      const wp = toWorld(e.clientX, e.clientY);
+      nodeDrag = { node: h, id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, tx: wp.x, ty: wp.y };
+    } else {
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
+    }
     canvasEl.setPointerCapture?.(e.pointerId);
   }
+  function dropNode() {
+    if (!nodeDrag) return;
+    if (nodeDrag.moved) {
+      // el hogar se queda donde lo soltaste: deriva suave DESDE ahí (no vuelve al ancla)
+      nodeDrag.node.hx = nodeDrag.node.x;
+      nodeDrag.node.hy = nodeDrag.node.y;
+    }
+    nodeDrag = null;
+  }
   function pm(e) {
+    if (nodeDrag && e.pointerId === nodeDrag.id) {
+      if (!nodeDrag.moved && Math.hypot(e.clientX - nodeDrag.sx, e.clientY - nodeDrag.sy) > NODE_SLOP) {
+        nodeDrag.moved = true; // pasa de tap a ARRASTRE de nodo
+        if (canvasEl) canvasEl.style.cursor = 'grabbing';
+      }
+      if (nodeDrag.moved) {
+        const wp = toWorld(e.clientX, e.clientY);
+        nodeDrag.tx = wp.x;
+        nodeDrag.ty = wp.y;
+        if (reduced) {
+          // sin física: el nodo va DIRECTO al dedo (drag funcional sin deriva)
+          nodeDrag.node.x = wp.x;
+          nodeDrag.node.y = wp.y;
+        }
+      }
+      return;
+    }
     if (!drag) {
       if (e.pointerType !== 'touch') {
         hover = hit(e.clientX, e.clientY);
@@ -408,6 +487,12 @@
     if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 5) drag.moved = true;
   }
   function pu(e) {
+    if (nodeDrag && e.pointerId === nodeDrag.id) {
+      if (!nodeDrag.moved) select(nodeDrag.node); // tap corto sobre el nodo = seleccionar
+      dropNode();
+      if (canvasEl) canvasEl.style.cursor = 'grab';
+      return;
+    }
     if (!drag) return;
     if (drag.p2 && e.pointerId === drag.p2.id) {
       drag.p2 = null;
@@ -419,11 +504,7 @@
       drag = { id: drag.p2.id, x: drag.p2.x, y: drag.p2.y, sx: drag.p2.x, sy: drag.p2.y, moved: true };
       return;
     }
-    if (!drag.moved) {
-      const h = hit(e.clientX, e.clientY);
-      if (h) select(h);
-      else selected = null; // tap al vacío apaga la constelación
-    }
+    if (!drag.moved) selected = null; // tap al vacío (el fondo) apaga la constelación
     drag = null;
   }
   function wheel(e) {
@@ -473,7 +554,14 @@
         return { x: rect.left + px * (rect.width / W), y: rect.top + py * (rect.height / H) };
       },
       search: (q) => onSearch(q),
-      positions: () => nodes.slice(0, 8).map((n) => ({ nombre: n.nombre, x: Math.round(n.x), y: Math.round(n.y) }))
+      positions: () => nodes.slice(0, 8).map((n) => ({ nombre: n.nombre, x: Math.round(n.x), y: Math.round(n.y) })),
+      world: (nombre) => {
+        const n = nodes.find((x) => x.nombre?.toLowerCase().includes(nombre.toLowerCase()));
+        return n ? { x: n.x, y: n.y, hx: n.hx, hy: n.hy, r: n.r } : null;
+      },
+      viewState: () => ({ x: view.x, y: view.y, z: view.z }),
+      // densidad: stats REALES del último draw (la esquiva garantiza 0 solapes dibujados)
+      labelOverlaps: () => lastLabelStats
     };
   }
 </script>
@@ -607,7 +695,7 @@
     padding: 18px 18px 0;
     pointer-events: none;
   }
-  .head { flex: 1; min-width: 0; pointer-events: auto; }
+  .head { flex: 1; min-width: 0; pointer-events: none; } /* informativo: los nodos de debajo se pueden tocar */
   .head .hl { font-size: 24px; margin-top: 2px; }
   .head .lbl.dim { margin-top: 4px; }
   .search {
