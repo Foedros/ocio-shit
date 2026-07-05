@@ -103,6 +103,74 @@ function getObserver(threshold) {
   return o;
 }
 
+// ── Confeti de categoría (Tanda 4) ───────────────────────────────────────────────────────
+// Micro-explosión de partículas del color de la categoría al guardar una entrada, desde el
+// botón Guardar. Canvas efímero fixed (pointer-events none) → NO bloquea el guardado ni el
+// cierre del sheet (sobrevive al desmontaje del botón: el caller pasa el PUNTO, no el nodo).
+// Física simple: velocidad radial + gravedad + fade. Con reduced-motion: no-op.
+export function confettiBurst({ x, y }, color, { count = 26, duration = 800 } = {}) {
+  if (typeof document === 'undefined' || prefersReducedMotion()) return;
+  const SIZE = 340;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const canvas = document.createElement('canvas');
+  canvas.className = 'confetti-burst';
+  canvas.dataset.color = color; // verificable en tests
+  canvas.width = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  canvas.style.cssText = `position:fixed;left:${x - SIZE / 2}px;top:${y - SIZE / 2}px;width:${SIZE}px;height:${SIZE}px;pointer-events:none;z-index:200;`;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // tonos: el color de la categoría + variante clara y oscura (sin ICU ni color-mix: hex a mano)
+  const n = parseInt(color.replace('#', ''), 16);
+  const mix = (k) => {
+    const ch = (v) => Math.max(0, Math.min(255, Math.round(v)));
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const t = k > 0 ? 255 : 0, a = Math.abs(k);
+    return `rgb(${ch(r + (t - r) * a)},${ch(g + (t - g) * a)},${ch(b + (t - b) * a)})`;
+  };
+  const shades = [mix(0), mix(0.28), mix(-0.22)];
+
+  const parts = Array.from({ length: count }, (_, i) => {
+    const ang = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+    const speed = 120 + Math.random() * 200; // px/s radial
+    return {
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed - 60, // ligero impulso hacia arriba
+      s: 3 + Math.random() * 3.5,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 10,
+      c: shades[i % shades.length]
+    };
+  });
+
+  document.body.appendChild(canvas);
+  const G = 900; // px/s²
+  const t0 = performance.now();
+  const tick = (now) => {
+    const t = (now - t0) / 1000;
+    const p = (now - t0) / duration;
+    if (p >= 1) {
+      canvas.remove();
+      return;
+    }
+    ctx.clearRect(0, 0, SIZE, SIZE);
+    ctx.globalAlpha = 1 - easeOutExpo(p) * 0.2 - p * 0.8; // fade
+    for (const q of parts) {
+      const px = SIZE / 2 + q.vx * t;
+      const py = SIZE / 2 + q.vy * t + 0.5 * G * t * t;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(q.rot + q.vr * t);
+      ctx.fillStyle = q.c;
+      ctx.fillRect(-q.s / 2, -q.s / 2, q.s, q.s * 0.72);
+      ctx.restore();
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 // ── Shared element "carátula que vuela" (View Transitions API, Tanda 3) ─────────────────
 // flyOpen(el, apply): marca la carátula ORIGEN con view-transition-name y ejecuta `apply`
 // (que monta el detalle, cuyo cover lleva el MISMO nombre en el estado nuevo) dentro de

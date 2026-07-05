@@ -3,6 +3,7 @@
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
   import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction, buscarCaratula, setImagenAction, testImage } from '$lib/boot-supabase.js';
+  import { confettiBurst } from '$lib/motion.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS, generoLabel } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -103,9 +104,12 @@
     editing = true;
   }
 
-  async function save(e) {
+  async function save(e, ev) {
     const duracion_min =
       edDurH !== '' || edDurMin !== '' ? (Number(edDurH) || 0) * 60 + (Number(edDurMin) || 0) : null;
+    // punto del confeti ANTES del await (la acción recarga el detalle y el botón se desmonta)
+    const br = ev?.currentTarget?.getBoundingClientRect();
+    const burstAt = br ? { x: br.left + br.width / 2, y: br.top + br.height / 2 } : null;
     try {
       await updateEntryAction(e.entrada_id, {
         valoracion: edVal === '' ? null : Number(edVal),
@@ -113,6 +117,7 @@
         fecha: edFecha || null, // vacío → NULL (quitar la fecha)
         duracion_min
       });
+      if (burstAt) confettiBurst(burstAt, col(e.categoria).c); // color de la categoría
       editing = false; // la acción recarga el detalle con los valores nuevos
     } catch {
       /* el toast de error lo lanza la acción; nos quedamos en edición */
@@ -263,7 +268,7 @@
         </div>
         <div class="edit-actions">
           <button class="no" onclick={() => (editing = false)}>Cancelar</button>
-          <button class="save" onclick={() => save(e)} disabled={!!$busy}>{$busy ? 'Guardando…' : 'Guardar'}</button>
+          <button class="save" onclick={(ev) => save(e, ev)} disabled={!!$busy}>{$busy ? 'Guardando…' : 'Guardar'}</button>
         </div>
       </div>
     {/if}

@@ -4,6 +4,8 @@
   // para que las obras nuevas nazcan con los mismos datos que las enriquecidas por API. Create-vs-link:
   // si el título ya existe, se detecta y se PRE-RELLENA para confirmar/corregir (no se duplica).
   import { addEntryAction, lookupObra, listGeneros } from '$lib/boot-supabase.js';
+  import { confettiBurst } from '$lib/motion.js';
+  import { CAT_COLOR } from '$lib/theme.js';
   import { CATEGORIAS, ROL_CREADOR_LABEL, generoLabel, slugifyGenero } from '$lib/db/queries.js';
   import { busy, role, showToast } from '$lib/stores.js';
   import { todayISO } from '$lib/format.js';
@@ -130,6 +132,11 @@
     e?.preventDefault();
     if (!titulo.trim() || !canWrite || $busy) return;
     if (genInput.trim()) addGenero(); // no perder un género tecleado sin confirmar
+    // el punto del confeti se captura ANTES del await (el sheet se cierra al guardar y el
+    // botón se desmonta; el canvas es independiente → no bloquea ni el guardado ni el cierre)
+    const btn = formEl?.querySelector('.actions .btn.primary');
+    const br = btn?.getBoundingClientRect();
+    const burstAt = br ? { x: br.left + br.width / 2, y: br.top + br.height / 2 } : null;
     try {
       const durMinTotal =
         durH !== '' || durMin !== '' ? (Number(durH) || 0) * 60 + (Number(durMin) || 0) : null;
@@ -149,6 +156,7 @@
         }
       });
       showToast(`Entrada guardada${res.obraCreated ? '' : ' · reconsumo ' + res.numReconsumo}`);
+      if (burstAt) confettiBurst(burstAt, CAT_COLOR[categoria]?.c ?? '#F2A65A'); // color de la categoría guardada
       reset();
       onsaved?.();
     } catch {
