@@ -1,6 +1,7 @@
 <script>
   import VirtualList from './VirtualList.svelte';
   import GalleryFlow from './GalleryFlow.svelte';
+  import ShelfGrid from './ShelfGrid.svelte';
   import { archiveEntries, archiveFilters, archiveView, filterOpts } from '$lib/stores.js';
   import { setFilters, openEntryDetail } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS } from '$lib/db/queries.js';
@@ -17,15 +18,36 @@
   const col = (cat) => CAT_COLOR[cat] ?? { c: 'var(--ink-3)', tint: 'var(--ink-2)' };
   // La lista solo vuelve al principio cuando cambian los FILTROS — no al puntuar una entrada.
   let filterKey = $derived(JSON.stringify($archiveFilters));
+
+  // ESTANTERÍA: deduplicación visual por OBRA — reconsumos y entradas-año (LoL/HotS/SC2)
+  // aparecen UNA vez. La lista viene ordenada fecha desc → la primera aparición de cada obra
+  // es su entrada más reciente (la representante). Respeta los mismos filtros/buscador.
+  let shelfItems = $derived.by(() => {
+    const seen = new Set();
+    const out = [];
+    for (const e of $archiveEntries) {
+      if (seen.has(e.obra_id)) continue;
+      seen.add(e.obra_id);
+      out.push(e);
+    }
+    return out;
+  });
 </script>
 
 <div class="filters">
   <div class="toprow">
     <input class="search" type="search" placeholder="Buscar en el archivo…" oninput={onSearch} aria-label="Buscar" />
-    <!-- Toggle Lista/Galería (diseño Cover Flow): Lista = vista actual intacta; Galería = cover flow -->
+    <!-- Toggle de 3 vistas: Lista (filas) · Galería (cover flow) · Estantería (grid Letterboxd) -->
     <div class="viewtoggle" role="group" aria-label="Vista">
-      <button type="button" class="vbtn" class:on={$archiveView === 'lista'} onclick={() => archiveView.set('lista')}>Lista</button>
-      <button type="button" class="vbtn" class:on={$archiveView === 'galeria'} onclick={() => archiveView.set('galeria')}>Galería</button>
+      <button type="button" class="vbtn" class:on={$archiveView === 'lista'} onclick={() => archiveView.set('lista')} aria-label="Lista" title="Lista">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h11" /></svg>
+      </button>
+      <button type="button" class="vbtn" class:on={$archiveView === 'galeria'} onclick={() => archiveView.set('galeria')} aria-label="Galería" title="Galería (cover flow)">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="5.6" y="2.8" width="4.8" height="10.4" rx="1" /><path d="M2.8 5v6M13.2 5v6" /></svg>
+      </button>
+      <button type="button" class="vbtn" class:on={$archiveView === 'estanteria'} onclick={() => archiveView.set('estanteria')} aria-label="Estantería" title="Estantería (grid)">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="2.2" y="2.2" width="4.8" height="4.8" rx="0.9" /><rect x="9" y="2.2" width="4.8" height="4.8" rx="0.9" /><rect x="2.2" y="9" width="4.8" height="4.8" rx="0.9" /><rect x="9" y="9" width="4.8" height="4.8" rx="0.9" /></svg>
+      </button>
     </div>
   </div>
   <div class="selects">
@@ -63,6 +85,17 @@
 
 {#if $archiveView === 'galeria'}
   <GalleryFlow resetKey={filterKey} />
+{:else if $archiveView === 'estanteria'}
+  <p class="count">{shelfItems.length.toLocaleString('es-ES')} obras</p>
+  {#if shelfItems.length === 0}
+    <div class="empty">
+      <div class="mark">◇</div>
+      <p class="lead">No hay obras con estos filtros.</p>
+      <p class="hint">Ajusta los filtros, o registra una nueva con el botón +.</p>
+    </div>
+  {:else}
+    <ShelfGrid items={shelfItems} resetKey={filterKey} />
+  {/if}
 {:else}
 <p class="count">{$archiveEntries.length.toLocaleString('es-ES')} entradas</p>
 
@@ -141,13 +174,14 @@
     background: none;
     border: none;
     border-radius: 999px;
-    padding: 0.42rem 0.8rem;
-    font-family: var(--font-data);
-    font-size: 0.62rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    padding: 0.42rem 0.62rem;
+    display: grid;
+    place-items: center;
     color: var(--ink-3);
     cursor: pointer;
+  }
+  .vbtn svg {
+    display: block;
   }
   .vbtn.on {
     background: var(--accent);
