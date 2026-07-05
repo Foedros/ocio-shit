@@ -562,6 +562,24 @@ begin
 end;
 $$;
 
+-- Fija/quita la CARÁTULA de una obra (Fase 3 de carátulas: reparación manual + asignación
+-- automática en altas). p_url NULL/'' → NULL (vuelve al fallback tipográfico). Valida forma
+-- http(s) y longitud; la validación de que la imagen CARGA la hace el cliente (onerror) antes
+-- de llamar. SECURITY INVOKER (RLS por owner_id, no DEFINER), authenticated-only.
+create or replace function ocio_set_imagen(p_obra_id text, p_url text)
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare v_url text := nullif(trim(coalesce(p_url, '')), '');
+begin
+  if v_url is not null and (v_url !~* '^https?://' or length(v_url) > 2000) then
+    return jsonb_build_object('ok', false, 'reason', 'url_invalida');
+  end if;
+  update obra set imagen_url = v_url where id = p_obra_id;          -- RLS: solo lo del dueño
+  if not found then return jsonb_build_object('ok', false, 'reason', 'no_existe'); end if;
+  return jsonb_build_object('ok', true, 'obra_id', p_obra_id, 'imagen_url', v_url);
+end;
+$$;
+
 -- ── HOME / DASHBOARD (01): el aterrizaje, en UNA RPC ────────────────────────────────────────
 -- Síntesis + puertas. REUTILIZA las RPCs existentes (no recalcula): llama por dentro a
 -- ocio_progresion()/ocio_hall()/ocio_stats() y extrae SOLO los slivers (nivel/clase, cumbre,
@@ -863,6 +881,7 @@ revoke all on function ocio_wrapped(integer)        from public, anon;
 revoke all on function ocio_progresion()            from public, anon;
 revoke all on function ocio_set_canon(text, boolean, text, text) from public, anon;
 revoke all on function ocio_set_en_curso(text, boolean) from public, anon;
+revoke all on function ocio_set_imagen(text, text)  from public, anon;
 revoke all on function ocio_timeline_macro()        from public, anon;
 revoke all on function ocio_timeline_year(integer)  from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
@@ -881,5 +900,6 @@ grant  execute on function ocio_wrapped(integer)    to authenticated;
 grant  execute on function ocio_progresion()        to authenticated;
 grant  execute on function ocio_set_canon(text, boolean, text, text) to authenticated;
 grant  execute on function ocio_set_en_curso(text, boolean) to authenticated;
+grant  execute on function ocio_set_imagen(text, text) to authenticated;
 grant  execute on function ocio_timeline_macro()    to authenticated;
 grant  execute on function ocio_timeline_year(integer) to authenticated;

@@ -245,6 +245,22 @@ export function setEnCurso(adapter, obraId, on) {
   return { ok: true, en_curso: !!on };
 }
 
+/**
+ * Fija/quita la carátula de una obra. Espejo de la RPC ocio_set_imagen (Fase 3 de carátulas):
+ * NULL/'' → NULL (fallback tipográfico); valida forma http(s) y longitud. La validación de que
+ * la imagen CARGA la hace el cliente (onerror) antes de llamar.
+ */
+export function setImagen(adapter, obraId, url) {
+  const v = String(url ?? '').trim() || null;
+  if (v !== null && (!/^https?:\/\//i.test(v) || v.length > 2000)) {
+    return { ok: false, reason: 'url_invalida' };
+  }
+  const o = adapter.get('SELECT id FROM obra WHERE id = ?', [obraId]);
+  if (!o) return { ok: false, reason: 'no_existe' };
+  adapter.run('UPDATE obra SET imagen_url = ? WHERE id = ?', [v, obraId]);
+  return { ok: true, obra_id: obraId, imagen_url: v };
+}
+
 /** Filtered list of entradas (joined with their obra). Returns minimal display rows. */
 export function listEntries(adapter, { categoria, origen, fecha_tipo, search, limit = 6000 } = {}) {
   const where = [];

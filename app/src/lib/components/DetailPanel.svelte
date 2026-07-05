@@ -2,7 +2,7 @@
   import Sheet from './Sheet.svelte';
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
-  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction } from '$lib/boot-supabase.js';
+  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction, buscarCaratula, setImagenAction } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS, generoLabel } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -19,12 +19,85 @@
   let edDurMin = $state('');
   let edNota = $state('');
 
-  // Reset confirm + edit whenever the shown item changes.
+  // ── Carátula (Fase 3): picker de candidatos + URL manual + quitar ──────────
+  let pickingCover = $state(false);
+  // $state.raw (no proxy): la guarda de vigencia compara covCtx === ctx por IDENTIDAD; con
+  // $state normal Svelte 5 envuelve el objeto en un Proxy y la comparación fallaría siempre.
+  let covCtx = $state.raw(null); // { obraId, titulo, categoria, anio, imagen, entradaId }
+  let covCands = $state([]);
+  let covLoading = $state(false);
+  let covError = $state('');
+  let covManual = $state('');
+  let covTesting = $state(false);
+
+  // Reset confirm + edit + picker whenever the shown item changes (p. ej. tras guardar carátula,
+  // setImagenAction recarga el detalle → el picker se cierra solo). covCtx se anula para que las
+  // respuestas EN VUELO de un picker anterior queden obsoletas (guarda de vigencia de abajo).
   $effect(() => {
     void $detail;
     confirming = false;
     editing = false;
+    pickingCover = false;
+    covCtx = null;
+    covTesting = false;
+    covError = '';
+    covManual = '';
   });
+
+  // Una búsqueda puede tardar segundos (cold start + fuentes): si mientras tanto se cerró el
+  // picker o se abrió el de OTRA obra, la respuesta vieja se DESCARTA (nunca pisa candidatos
+  // ajenos — un clic asignaría la carátula de A a la obra B).
+  const covStale = (ctx) => covCtx !== ctx || !pickingCover;
+
+  async function openPicker(ctx) {
+    covCtx = ctx;
+    covCands = [];
+    covError = '';
+    covManual = '';
+    pickingCover = true;
+    covLoading = true;
+    try {
+      const cands = await buscarCaratula({ titulo: ctx.titulo, categoria: ctx.categoria, anio: ctx.anio });
+      if (covStale(ctx)) return;
+      covCands = cands;
+      if (!cands.length) covError = 'Sin candidatos para este título — puedes pegar una URL manual.';
+    } catch (err) {
+      if (covStale(ctx)) return;
+      covError = `La búsqueda falló: ${err.message}`;
+    } finally {
+      if (!covStale(ctx)) covLoading = false;
+    }
+  }
+
+  // Valida que la URL carga como imagen REAL antes de guardar (onerror + descarta 1×1 placeholder).
+  function testImage(url) {
+    return new Promise((resolve) => {
+      const im = new Image();
+      const t = setTimeout(() => resolve(false), 12000);
+      im.onload = () => { clearTimeout(t); resolve(im.naturalWidth > 1 && im.naturalHeight > 1); };
+      im.onerror = () => { clearTimeout(t); resolve(false); };
+      im.src = url;
+    });
+  }
+
+  async function useManualUrl() {
+    const ctx = covCtx; // capturado ANTES del await: si el picker cambia/cierra, se aborta
+    const url = covManual.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      covError = 'La URL debe empezar por http(s)://';
+      return;
+    }
+    covTesting = true;
+    covError = '';
+    const ok = await testImage(url);
+    if (covStale(ctx)) return; // cerrado o cambiado de obra mientras probaba → no guardar nada
+    covTesting = false;
+    if (!ok) {
+      covError = 'Esa URL no carga como imagen (rota o bloqueada). No se ha guardado.';
+      return;
+    }
+    await setImagenAction(ctx.obraId, url, { entradaId: ctx.entradaId });
+  }
 
   function startEdit(e) {
     edVal = e.valoracion != null ? String(e.valoracion) : '';
@@ -58,7 +131,56 @@
   title={$detail?.kind === 'obra' ? $detail.data.obra.titulo : ($detail?.data?.titulo ?? '')}
   onclose={closeDetail}
 >
-  {#if $detail?.kind === 'entrada'}
+  {#snippet coverPicker()}
+    <div class="cov-picker">
+      <div class="eyebrow">Cambiar carátula</div>
+      {#if covCtx?.imagen}
+        <div class="cov-current">
+          <img src={covCtx.imagen} alt="Carátula actual" loading="lazy" />
+          <span class="sub">actual</span>
+        </div>
+      {/if}
+      {#if covLoading}
+        <p class="cov-msg">Buscando carátulas…</p>
+      {:else if covCands.length}
+        <div class="cov-grid">
+          {#each covCands as c}
+            <button
+              class="cov-cand"
+              onclick={() => setImagenAction(covCtx.obraId, c.url, { entradaId: covCtx.entradaId })}
+              disabled={!!$busy}
+              title="Usar esta carátula"
+            >
+              <img src={c.url} alt={c.titulo} loading="lazy" />
+              <span class="cov-cap">{c.titulo}{c.anio ? ` · ${c.anio}` : ''}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+      <label class="fld cov-manual">
+        <span class="lbl">O pega una URL de imagen</span>
+        <div class="cov-manual-row">
+          <input bind:value={covManual} placeholder="https://…" aria-label="URL manual de carátula" />
+          <button class="edit" onclick={useManualUrl} disabled={covTesting || !!$busy}>
+            {covTesting ? 'Probando…' : 'Usar'}
+          </button>
+        </div>
+      </label>
+      {#if covError}<p class="cov-err">{covError}</p>{/if}
+      <div class="edit-actions">
+        {#if covCtx?.imagen}
+          <button class="del" onclick={() => setImagenAction(covCtx.obraId, null, { entradaId: covCtx.entradaId })} disabled={!!$busy}>
+            Quitar carátula
+          </button>
+        {/if}
+        <button class="no" onclick={() => (pickingCover = false)}>Cancelar</button>
+      </div>
+    </div>
+  {/snippet}
+
+  {#if $detail?.kind === 'entrada' && pickingCover}
+    {@render coverPicker()}
+  {:else if $detail?.kind === 'entrada'}
     {@const e = $detail.data}
     <div class="chip-row">
       <span class="dot" style="background:{col(e.categoria).c}"></span>
@@ -92,6 +214,13 @@
               {e.en_curso ? '◐ En curso' : '◌ Marcar en curso'}
             </button>
           {/if}
+          <button
+            class="edit"
+            onclick={() => openPicker({ obraId: e.obra_id, titulo: e.titulo, categoria: e.categoria, anio: e.anio_obra, imagen: e.imagen_url, entradaId: e.entrada_id })}
+            title="Buscar candidatos, pegar una URL propia o quitar la carátula"
+          >
+            Cambiar carátula
+          </button>
         </div>
         <div class="danger">
           {#if !confirming}
@@ -133,6 +262,8 @@
         </div>
       </div>
     {/if}
+  {:else if $detail?.kind === 'obra' && pickingCover}
+    {@render coverPicker()}
   {:else if $detail?.kind === 'obra'}
     {@const o = $detail.data.obra}
     <div class="chip-row">
@@ -141,10 +272,24 @@
       {#if o.categoria === 'serie' && o.en_curso}<span class="encurso" title="Aún la estás viendo — la nota es provisional">EN CURSO</span>{/if}
       {#if o.anio_obra}<span class="sub">{o.anio_obra}</span>{/if}
     </div>
-    {#if $role === 'leader' && o.categoria === 'serie'}
+    {#if o.imagen_url}
+      <div class="cov-current obra-cov">
+        <img src={o.imagen_url} alt="Carátula de {o.titulo}" loading="lazy" />
+      </div>
+    {/if}
+    {#if $role === 'leader'}
       <div class="actions-row">
-        <button class="encurso-btn" class:on={o.en_curso} onclick={() => setEnCursoAction(o.id, !o.en_curso)} disabled={!!$busy} title="Aún la estás viendo a trozos — la nota es provisional hasta que la termines">
-          {o.en_curso ? '◐ En curso' : '◌ Marcar en curso'}
+        {#if o.categoria === 'serie'}
+          <button class="encurso-btn" class:on={o.en_curso} onclick={() => setEnCursoAction(o.id, !o.en_curso)} disabled={!!$busy} title="Aún la estás viendo a trozos — la nota es provisional hasta que la termines">
+            {o.en_curso ? '◐ En curso' : '◌ Marcar en curso'}
+          </button>
+        {/if}
+        <button
+          class="edit"
+          onclick={() => openPicker({ obraId: o.id, titulo: o.titulo, categoria: o.categoria, anio: o.anio_obra, imagen: o.imagen_url, entradaId: null })}
+          title="Buscar candidatos, pegar una URL propia o quitar la carátula"
+        >
+          Cambiar carátula
         </button>
       </div>
     {/if}
@@ -489,6 +634,102 @@
   .save:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  /* Picker de carátula (Fase 3) — mismo idioma visual que el modo edición */
+  .cov-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  .cov-current {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+  }
+  .cov-current img {
+    max-height: 110px;
+    max-width: 160px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    display: block;
+  }
+  .obra-cov {
+    margin-bottom: 1rem;
+  }
+  .obra-cov img {
+    max-height: 150px;
+    max-width: 220px;
+  }
+  .cov-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 0.6rem;
+  }
+  .cov-cand {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.35rem;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font: inherit;
+    color: var(--ink-2);
+    text-align: left;
+  }
+  .cov-cand:hover,
+  .cov-cand:focus-visible {
+    border-color: var(--accent);
+  }
+  .cov-cand:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .cov-cand img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+    background: var(--surface-2);
+  }
+  .cov-cap {
+    font-size: 0.68rem;
+    line-height: 1.25;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .cov-manual-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .cov-manual-row input {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 0.5rem 0.6rem;
+    font-family: var(--font-text);
+    font-size: 0.9rem;
+    min-width: 0;
+  }
+  .cov-manual-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .cov-msg {
+    color: var(--ink-3);
+    margin: 0;
+  }
+  .cov-err {
+    color: var(--danger-ink);
+    font-size: 0.85rem;
+    margin: 0;
   }
 </style>
 

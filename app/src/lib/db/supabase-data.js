@@ -242,6 +242,24 @@ export async function setEnCurso(obraId, on) {
   return data; // { ok, en_curso?, reason? }
 }
 
+// ── Carátulas (Fase 3) ───────────────────────────────────────────────────────
+// Busca candidatos de carátula vía la Edge Function `buscar_caratula` (proxy server-side:
+// la clave TMDB vive en los secrets de Supabase, y Steam no manda CORS). Authenticated-only
+// (la función valida el JWT). Devuelve top ~8 [{url, titulo, anio, fuente}], mejor primero.
+export async function buscarCaratula({ titulo, categoria, anio } = {}) {
+  const { data, error } = await supabase.functions.invoke('buscar_caratula', {
+    body: { titulo, categoria, anio: anio ?? null }
+  });
+  fail(error, 'buscarCaratula');
+  return data?.candidatos ?? [];
+}
+// Fija/quita la carátula de una obra. RPC INVOKER (RLS); NULL → fallback tipográfico.
+export async function setImagen(obraId, url) {
+  const { data, error } = await supabase.rpc('ocio_set_imagen', { p_obra_id: obraId, p_url: url ?? null });
+  fail(error, 'setImagen');
+  return data; // { ok, obra_id?, imagen_url?, reason? }
+}
+
 // Timeline (pantalla 04): macro = volumen+mezcla por AÑO DE ENTRADA (rápido, una RPC); el detalle
 // de un año (sus entradas, para agrupar por mes + clúster de votos) se pide al seleccionarlo.
 export async function timelineMacro() {

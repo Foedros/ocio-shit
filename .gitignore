@@ -49,3 +49,4 @@ app/src/lib/db/supabase-config.js
 Thumbs.db
 __pycache__/
 *.pyc
+supabase/.temp/

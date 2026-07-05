@@ -187,11 +187,64 @@ export async function addEntryAction(payload) {
     await refreshArchive();
     logEvent('ok', `Registrada "${payload.obra?.titulo}" · ${res.obraCreated ? 'obra nueva' : 'obra existente'} · reconsumo ${res.numReconsumo}.`);
     showToast('Entrada registrada');
+    // Carátula automática (Fase 3): SOLO en obras NUEVAS (las existentes sin carátula son curación
+    // pendiente a propósito). Fire-and-forget: el alta nunca se bloquea ni falla por esto.
+    if (res.obraCreated) {
+      void autoAssignCover(res.obraId, payload.obra?.titulo, payload.obra?.categoria, payload.obra?.anio_obra);
+    }
     return res;
   } catch (err) {
     logEvent('error', `No se pudo registrar: ${err.message}`);
     showToast('No se pudo registrar', 'error');
     throw err;
+  } finally {
+    busy.set(null);
+  }
+}
+
+// ── Carátulas (Fase 3) ────────────────────────────────────────────────────────
+// PATCH en memoria: todas las entradas de la obra reflejan la carátula nueva al instante
+// (la Galería re-renderiza sin re-fetch ni pérdida de posición).
+function patchImagen(obraId, url) {
+  archiveEntries.update((list) => list.map((e) => (e.obra_id === obraId ? { ...e, imagen_url: url } : e)));
+}
+
+// Alta nueva: primer candidato por título+año; sin resultado → NULL (fallback tipográfico).
+async function autoAssignCover(obraId, titulo, categoria, anio) {
+  try {
+    const cands = await data.buscarCaratula({ titulo, categoria, anio });
+    const best = cands?.[0];
+    if (!best?.url) return;
+    const res = await data.setImagen(obraId, best.url);
+    if (res?.ok) {
+      patchImagen(obraId, best.url);
+      logEvent('ok', `Carátula asignada automáticamente (${best.fuente}).`);
+    }
+  } catch (err) {
+    logEvent('warn', `Sin carátula automática: ${err.message}`); // nunca rompe el alta
+  }
+}
+
+// Candidatos para el modal "Cambiar carátula" (reparación manual).
+export const buscarCaratula = (args) => data.buscarCaratula(args);
+
+// Fija/quita la carátula desde el modal y refresca el detalle abierto + la lista en memoria.
+export async function setImagenAction(obraId, url, { entradaId } = {}) {
+  busy.set(url ? 'Guardando carátula…' : 'Quitando carátula…');
+  try {
+    const res = await data.setImagen(obraId, url);
+    if (!res?.ok) {
+      showToast(res?.reason === 'url_invalida' ? 'La URL no es válida.' : 'No se pudo guardar', 'error');
+      return res;
+    }
+    patchImagen(obraId, res.imagen_url ?? null);
+    if (entradaId) await openEntryDetail(entradaId);
+    else await openObraDetail(obraId);
+    showToast(url ? 'Carátula actualizada' : 'Carátula quitada');
+    return res;
+  } catch (err) {
+    logEvent('error', `No se pudo cambiar la carátula: ${err.message}`);
+    showToast('No se pudo cambiar la carátula', 'error');
   } finally {
     busy.set(null);
   }
@@ -393,6 +446,9 @@ export function __installTestHooks() {
     getPhase: () => get(phase),
     getCounts: () => get(dbStatus)?.counts,
     getArchiveCount: () => get(archiveEntries).length,
-    exportArchive: () => data.exportArchive()
+    exportArchive: () => data.exportArchive(),
+    buscarCaratula: (a) => data.buscarCaratula(a),
+    setImagen: (obraId, url, opts) => setImagenAction(obraId, url, opts || {}),
+    getObra: (id) => data.getObra(id)
   };
 }

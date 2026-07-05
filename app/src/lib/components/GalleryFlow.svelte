@@ -17,7 +17,10 @@
   let idx = $state(0);
   let stageEl = $state(null);
   let mobile = $state(false);
-  let broken = $state(new Set()); // entrada_ids cuya imagen falló al cargar → fallback
+  // URLs (no entrada_ids) cuya imagen falló al cargar → fallback. Clave por URL para que
+  // REPARAR la carátula desde el detalle (imagen_url nueva vía patch en memoria) se refleje
+  // aquí al instante: la URL nueva no está en el Set y el cover se re-intenta solo.
+  let broken = $state(new Set());
 
   let items = $derived($archiveEntries);
   let count = $derived(items.length);
@@ -54,8 +57,8 @@
   // Altura fija, ancho variable: header de Steam (460×215) → ancho; póster (TMDB/OpenLibrary) → 2:3.
   const isWide = (it) => (it.imagen_url || '').includes('steamstatic');
   const wOf = (it) => Math.round(isWide(it) ? H * 1.3 : H * 0.667);
-  const hasImg = (it) => !!it.imagen_url && !broken.has(it.entrada_id);
-  const markBroken = (id) => (broken = new Set(broken).add(id));
+  const hasImg = (it) => !!it.imagen_url && !broken.has(it.imagen_url);
+  const markBroken = (url) => (broken = new Set(broken).add(url));
 
   // Ventana perezosa: ±WINDOW+1 covers montados (el +1 cubre el borde durante el glide fraccional).
   let win = $derived.by(() => {
@@ -336,7 +339,7 @@
         >
           <div class="cover-inner" style="width:{wOf(it)}px;height:{H}px">
             {#if hasImg(it)}
-              <img src={it.imagen_url} alt={it.titulo} loading="lazy" draggable="false" onerror={() => markBroken(it.entrada_id)} />
+              <img src={it.imagen_url} alt={it.titulo} loading="lazy" draggable="false" onerror={() => markBroken(it.imagen_url)} />
               <span class="sheen"></span>
             {:else}
               <div class="fallback" style="background:{col(it.categoria).c}; padding:{Math.round(H * 0.12)}px">

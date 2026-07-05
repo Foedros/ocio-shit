@@ -10,6 +10,7 @@ import {
   addEntry,
   deleteEntry,
   setEnCurso,
+  setImagen,
   listEntries,
   listObras,
   getEntry,
@@ -218,6 +219,18 @@ const ecPset = setEnCurso(A, ecP.obraId, true);
 check('en_curso: película RECHAZADA (solo_series, sin tocar)', ecPset.ok === false && ecPset.reason === 'solo_series' && A.get('SELECT en_curso FROM obra WHERE id = ?', [ecP.obraId]).en_curso === 0);
 check('en_curso: obra inexistente → ok:false', setEnCurso(A, 'no-existe', true).ok === false);
 check('en_curso: la serie sigue contando (su entrada intacta, valoración 7)', getEntry(A, ec1.entradaId).valoracion === 7 && integrityCheck(A).ok);
+
+// ════ CARÁTULA (espejo de ocio_set_imagen, Fase 3) ════
+console.log('\n[caratula]');
+const IMG = 'https://image.tmdb.org/t/p/w342/test-zzz.jpg';
+const ci = setImagen(A, ecP.obraId, IMG);
+check('caratula: se fija (ok + persistida)', ci.ok === true && A.get('SELECT imagen_url FROM obra WHERE id = ?', [ecP.obraId]).imagen_url === IMG);
+const ciBad = setImagen(A, ecP.obraId, 'javascript:alert(1)');
+check('caratula: URL no-http RECHAZADA (sin tocar)', ciBad.ok === false && ciBad.reason === 'url_invalida' && A.get('SELECT imagen_url FROM obra WHERE id = ?', [ecP.obraId]).imagen_url === IMG);
+check('caratula: URL desmesurada RECHAZADA', setImagen(A, ecP.obraId, 'https://' + 'x'.repeat(2100)).ok === false);
+check('caratula: quitar → NULL (fallback tipográfico)', setImagen(A, ecP.obraId, null).ok === true && A.get('SELECT imagen_url FROM obra WHERE id = ?', [ecP.obraId]).imagen_url === null);
+check('caratula: obra inexistente → ok:false', setImagen(A, 'no-existe', IMG).ok === false && setImagen(A, 'no-existe', IMG).reason === 'no_existe');
+check('caratula: integridad intacta', integrityCheck(A).ok && foreignKeyViolations(A) === 0);
 
 A.close();
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}\n`);
