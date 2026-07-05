@@ -208,6 +208,12 @@ export async function addEntryAction(payload) {
     await refreshArchive();
     logEvent('ok', `Registrada "${payload.obra?.titulo}" · ${res.obraCreated ? 'obra nueva' : 'obra existente'} · reconsumo ${res.numReconsumo}.`);
     showToast('Entrada registrada');
+    // la splash del próximo arranque estalla en el color de la ÚLTIMA categoría registrada
+    try {
+      localStorage.setItem('ocio:lastCat', payload.obra?.categoria ?? '');
+    } catch {
+      /* storage lleno/privado: da igual, la splash tiene fallback */
+    }
     // Carátula automática (Fase 3): SOLO en obras NUEVAS (las existentes sin carátula son curación
     // pendiente a propósito). Fire-and-forget: el alta nunca se bloquea ni falla por esto.
     if (res.obraCreated) {

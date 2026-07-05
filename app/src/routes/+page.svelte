@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { boot, signOutAction, exportAction, setDisplayNameAction, __installTestHooks } from '$lib/boot-supabase.js';
+  import { boot, signOutAction, exportAction, setDisplayNameAction, refreshArchive, refreshColecciones, __installTestHooks } from '$lib/boot-supabase.js';
   import { auth, dbStatus, displayName, busy } from '$lib/stores.js';
   import ArchiveList from '$lib/components/ArchiveList.svelte';
   import DetailPanel from '$lib/components/DetailPanel.svelte';
@@ -12,6 +12,8 @@
   import HomePanel from '$lib/components/HomePanel.svelte';
   import WrappedPanel from '$lib/components/WrappedPanel.svelte';
   import QuickAddForm from '$lib/components/QuickAddForm.svelte';
+  import Splash from '$lib/components/Splash.svelte';
+  import PullToRefresh from '$lib/components/PullToRefresh.svelte';
   import Login from '$lib/components/Login.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -32,6 +34,17 @@
   function closeAdd() {
     showAdd = false;
     confirmDiscard = false;
+  }
+
+  // Pull-to-refresh (Tanda 7): re-consulta los datos de la PANTALLA ACTUAL. Los paneles
+  // cargan en onMount → remontar la vista ({#key refreshTick}) re-consulta; el Diario y
+  // Colecciones leen stores → además se refrescan explícitos. Los filtros sobreviven (stores).
+  let refreshTick = $state(0);
+  async function doRefresh() {
+    if (view === 'diario' || view === 'colecciones') {
+      await Promise.all([refreshArchive(), refreshColecciones()]);
+    }
+    refreshTick++;
   }
 
   // ── Chasis móvil (Design): drawer lateral + cabecera hamburguesa. Escritorio: pestañas (intacto). ──
@@ -90,11 +103,16 @@
   });
 </script>
 
+<!-- Splash viva (Tanda 7): cubre la carga real del arranque; una vez por boot, se auto-gestiona -->
+<Splash />
+
 {#if !$auth.ready}
   <p class="loading">Conectando…</p>
 {:else if !$auth.session}
   <Login />
 {:else}
+<!-- Pull-to-refresh (Tanda 7, solo móvil): re-consulta la pantalla actual con la corona -->
+<PullToRefresh onrefresh={doRefresh} />
 <!-- MÓVIL: cabecera hamburguesa + título de sección + avatar. Escritorio: oculta (CSS). -->
 <header class="mhead" class:pushed={drawerOpen}>
   <button class="mh-burger" aria-label="Abrir menú" onclick={() => (drawerOpen = true)}>
@@ -119,6 +137,7 @@
 <!-- pushed (Tanda 6): parallax de profundidad al abrir el drawer — SOLO móvil; el wrapper no
      contiene nada fixed (drawer/FAB/sheets viven fuera → su posicionamiento no se rompe) -->
 <div class="page" class:pushed={drawerOpen}>
+{#key refreshTick}
 {#if view === 'home'}
   <HomePanel onnavigate={(v) => (view = v)} onregister={() => (showAdd = true)} />
 {:else if view === 'diario'}
@@ -167,8 +186,12 @@
     <p class="note small">Exportar saca tu archivo completo (todas las entradas, sin truncar) en el formato portable <code>export.json</code> — puedes llevártelo a otro Postgres o a SQLite cuando quieras. Propiedad total del dato.</p>
   </section>
 {/if}
+{/key}
+</div>
 
-<!-- FAB: en móvil en TODAS las pantallas; en escritorio solo en Diario (intacto). -->
+<!-- FAB: en móvil en TODAS las pantallas; en escritorio solo en Diario (intacto).
+     FUERA de .page: el will-change/transform del parallax (Tanda 6) convertiría a .page en
+     containing block del fixed y el FAB quedaría anclado al contenido, no al viewport. -->
 {#if canWrite && (mobile || view === 'diario') && !(view === 'diario' && isEmpty)}
   <button class="fab" onclick={() => (showAdd = true)} aria-label="Registrar entrada">
     <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
@@ -176,7 +199,6 @@
     </svg>
   </button>
 {/if}
-</div>
 
 <!-- MÓVIL: drawer lateral con las 9 secciones + "Cuenta y datos". Escritorio: oculto (CSS). -->
 <div class="drawer" class:open={drawerOpen} aria-hidden={!drawerOpen}>

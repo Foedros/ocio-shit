@@ -202,5 +202,11 @@
       padding: 0;
       overflow-x: clip;
     }
+    /* Tanda 7: el pull-to-refresh es NUESTRO — contain evita competir con el nativo del
+       navegador (Android Chrome) y el rubber-band encadenado (iOS 16+). */
+    :global(html),
+    :global(body) {
+      overscroll-behavior-y: contain;
+    }
   }
 </style>
