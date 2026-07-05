@@ -103,18 +103,25 @@
     const up = () => { dragging = false; el.style.cursor = 'grab'; };
     const md = (e) => down(e.clientX);
     const mm = (e) => drag(e.clientX);
-    // TÁCTIL (solo móvil) — BLOQUEO DE EJE decidido en el PRIMER touchmove. La versión anterior
-    // esperaba ~10px "de intención" SIN preventDefault y en iOS Safari eso pierde la carrera: con
-    // pan-y el navegador inicia el scroll vertical nativo en el primer move y los siguientes llegan
-    // cancelable:false (el preventDefault tardío se ignora). Ahora: el primer movimiento decide el
-    // eje; si es horizontal, preventDefault DESDE ese primer evento (aún cancelable) → el scroll
-    // nativo nunca arranca. Cinturón extra: overflow-lock de html/body mientras dura la captura.
-    // Vertical → ni preventDefault ni movimiento del carrusel (scrollea la página, pan-y).
-    // + AUTO-SCROLL POR MANTENIMIENTO: tras desplazar (gesto capturado), si el dedo queda quieto
-    // ~300ms en el 20% lateral del stage, avanza solo (~2,5 carátulas/s) hasta soltar o salir.
-    const EDGE = 0.2, HOLD_MS = 300, AUTO_MS = 400, JITTER = 8;
-    let tx = 0, ty = 0, taxis = null; // null = sin decidir · 'h' · 'v'
-    let holdTimer = null, autoInt = null, ax = 0; // ancla anti-jitter del hold
+    // TÁCTIL (solo móvil) — el CICLO DE VIDA del gesto va por POINTER EVENTS con setPointerCapture
+    // en el stage. Motivo (bug real en dispositivo): los touch events se entregan al TARGET ORIGINAL
+    // (la carátula bajo el dedo); durante el auto-scroll la ventana ±4 desliza y esa carátula se
+    // DESMONTA → touchend/touchcancel disparan sobre el nodo huérfano y no burbujean al stage →
+    // el auto-scroll no paraba nunca. La captura de puntero re-dirige move/up/cancel al stage pase
+    // lo que pase con los hijos. Se captura SOLO al confirmar gesto horizontal (los taps sobre
+    // covers siguen produciendo su click normal). El touchmove passive:false queda únicamente para
+    // preventDefault (bloqueo del scroll vertical, decidido en el PRIMER movimiento — iOS pierde la
+    // carrera si esperas); el overflow-lock de html/body cubre cualquier hueco.
+    // + AUTO-SCROLL por mantenimiento (~300ms quieto en el 20% lateral) con METÁFORA DE ARRASTRE:
+    //   sostener en el borde IZQUIERDO = seguir arrastrando hacia la izquierda = AVANZAR (y
+    //   viceversa) — continúa el movimiento del arrastre, no es un botón direccional.
+    // + INERCIA (flick): la velocidad al soltar (ventana ~120ms) añade 1..8 pasos extra con
+    //   desaceleración suave; cada paso es discreto → snap garantizado a una carátula.
+    const EDGE = 0.2, HOLD_MS = 300, AUTO_MS = 400, JITTER = 8, STEP_PX = 60;
+    const FLICK_MIN = 0.5, FLICK_K = 2.6, FLICK_MAX = 8; // px/ms → pasos (fuerte ~2-3px/ms → 5-8)
+    let pid = null, tx = 0, ty = 0, taxis = null, ax = 0;
+    let holdTimer = null, autoInt = null, momTimer = null;
+    let hist = []; // [{x,t}] últimos ~120ms, para la velocidad del flick
     const lockPage = (on) => {
       document.documentElement.style.overflow = on ? 'hidden' : '';
       document.body.style.overflow = on ? 'hidden' : '';
@@ -123,6 +130,7 @@
       clearTimeout(holdTimer); holdTimer = null;
       clearInterval(autoInt); autoInt = null;
     };
+    const stopMomentum = () => { clearTimeout(momTimer); momTimer = null; };
     const zoneOf = (x) => {
       const r = el.getBoundingClientRect();
       const rel = (x - r.left) / r.width;
@@ -130,46 +138,88 @@
     };
     const armHold = (x) => {
       stopAuto();
-      const dir = zoneOf(x);
-      if (!dir) return;
+      const z = zoneOf(x);
+      if (!z) return;
+      const dir = -z; // metáfora de arrastre: borde izquierdo (−1) = seguir avanzando (+1)
       holdTimer = setTimeout(() => {
         move(dir);
         autoInt = setInterval(() => move(dir), AUTO_MS);
       }, HOLD_MS);
     };
-    const ts = (e) => { taxis = null; tx = e.touches[0].clientX; ty = e.touches[0].clientY; ax = tx; };
-    const tm = (e) => {
-      const x = e.touches[0].clientX, y = e.touches[0].clientY;
+    const pd = (e) => {
+      if (e.pointerType !== 'touch') return; // ratón/lápiz: fuera (escritorio intacto)
+      stopMomentum(); stopAuto(); // un dedo nuevo corta inercia o restos de auto-scroll
+      pid = e.pointerId; taxis = null;
+      tx = e.clientX; ty = e.clientY; ax = tx;
+      hist = [{ x: tx, t: e.timeStamp }];
+    };
+    const pm = (e) => {
+      if (e.pointerId !== pid) return;
+      const x = e.clientX, y = e.clientY;
       const dx = x - tx, dy = y - ty;
       if (taxis === null) {
         if (dx === 0 && dy === 0) return;
         taxis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v'; // PRIMER movimiento decide
-        if (taxis === 'h') lockPage(true);
+        if (taxis === 'h') {
+          lockPage(true);
+          try { el.setPointerCapture(pid); } catch { /* sin soporte → belt del overflow-lock */ }
+        }
       }
-      if (taxis === 'v') return; // vertical: del navegador (pan-y); el carrusel no se mueve
-      if (e.cancelable) e.preventDefault(); // horizontal: la página no se mueve NI 1px
-      if (Math.abs(dx) > 60) { move(dx > 0 ? -1 : 1); tx = x; ty = y; }
-      if (Math.abs(x - ax) > JITTER) { ax = x; armHold(x); } // movimiento real → re-arma el hold
+      if (taxis === 'v') return;
+      hist.push({ x, t: e.timeStamp });
+      while (hist.length > 2 && hist[0].t < e.timeStamp - 120) hist.shift();
+      if (Math.abs(dx) > STEP_PX) { move(dx > 0 ? -1 : 1); tx = x; ty = y; }
+      if (Math.abs(x - ax) > JITTER) { ax = x; armHold(x); }
     };
-    const tend = () => { taxis = null; stopAuto(); lockPage(false); };
+    const pu = (e) => {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      // solo cuenta como "venía de auto-scroll" si el interval LLEGÓ a correr; un holdTimer aún
+      // pendiente (armado de pasada durante un flick que cruzó la zona de borde) no anula la inercia
+      const veniaDeAuto = !!autoInt;
+      stopAuto(); // SIEMPRE e inmediato: soltar (o touchcancel) mata el auto-scroll
+      if (taxis === 'h' && !veniaDeAuto && hist.length >= 2) {
+        // FLICK: velocidad al soltar → pasos extra con desaceleración (lento = solo el paso del drag)
+        const a = hist[0], b = hist[hist.length - 1];
+        const v = (b.x - a.x) / Math.max(1, b.t - a.t); // px/ms; + = dedo hacia la derecha
+        if (Math.abs(v) > FLICK_MIN) {
+          const dir = v > 0 ? -1 : 1;
+          let steps = Math.min(FLICK_MAX, Math.max(1, Math.round(Math.abs(v) * FLICK_K)));
+          let delay = 90;
+          const kick = () => {
+            move(dir);
+            if (--steps > 0) { delay = Math.round(delay * 1.35); momTimer = setTimeout(kick, delay); }
+            else momTimer = null;
+          };
+          momTimer = setTimeout(kick, 0);
+        }
+      }
+      taxis = null; hist = [];
+      lockPage(false);
+    };
+    // bloqueo del scroll de página (los pointer events no pueden cancelar scroll; esto sí)
+    const tmBlock = (e) => { if (taxis === 'h' && e.cancelable) e.preventDefault(); };
     el.addEventListener('wheel', onWheel, { passive: false });
     el.addEventListener('mousedown', md);
     window.addEventListener('mousemove', mm);
     window.addEventListener('mouseup', up);
-    el.addEventListener('touchstart', ts, { passive: true });
-    el.addEventListener('touchmove', tm, { passive: false });
-    el.addEventListener('touchend', tend);
-    el.addEventListener('touchcancel', tend);
+    el.addEventListener('pointerdown', pd);
+    el.addEventListener('pointermove', pm);
+    el.addEventListener('pointerup', pu);
+    el.addEventListener('pointercancel', pu);
+    el.addEventListener('touchmove', tmBlock, { passive: false });
     return () => {
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('mousedown', md);
       window.removeEventListener('mousemove', mm);
       window.removeEventListener('mouseup', up);
-      el.removeEventListener('touchstart', ts);
-      el.removeEventListener('touchmove', tm);
-      el.removeEventListener('touchend', tend);
-      el.removeEventListener('touchcancel', tend);
+      el.removeEventListener('pointerdown', pd);
+      el.removeEventListener('pointermove', pm);
+      el.removeEventListener('pointerup', pu);
+      el.removeEventListener('pointercancel', pu);
+      el.removeEventListener('touchmove', tmBlock);
       stopAuto();
+      stopMomentum();
       lockPage(false);
     };
   });
