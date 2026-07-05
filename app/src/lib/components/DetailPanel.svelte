@@ -2,7 +2,7 @@
   import Sheet from './Sheet.svelte';
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
-  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction, buscarCaratula, setImagenAction } from '$lib/boot-supabase.js';
+  import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction, buscarCaratula, setImagenAction, testImage } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS, generoLabel } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -29,6 +29,11 @@
   let covError = $state('');
   let covManual = $state('');
   let covTesting = $state(false);
+  // URLs de candidatos cuya miniatura NO cargó (onerror) → se ocultan del grid: un candidato
+  // roto no se puede elegir (evita guardar URLs muertas a ciegas).
+  let covBroken = $state(new Set());
+  const covMark = (url) => (covBroken = new Set(covBroken).add(url));
+  let covVisibles = $derived(covCands.filter((c) => !covBroken.has(c.url)));
 
   // Reset confirm + edit + picker whenever the shown item changes (p. ej. tras guardar carátula,
   // setImagenAction recarga el detalle → el picker se cierra solo). covCtx se anula para que las
@@ -52,6 +57,7 @@
   async function openPicker(ctx) {
     covCtx = ctx;
     covCands = [];
+    covBroken = new Set();
     covError = '';
     covManual = '';
     pickingCover = true;
@@ -67,17 +73,6 @@
     } finally {
       if (!covStale(ctx)) covLoading = false;
     }
-  }
-
-  // Valida que la URL carga como imagen REAL antes de guardar (onerror + descarta 1×1 placeholder).
-  function testImage(url) {
-    return new Promise((resolve) => {
-      const im = new Image();
-      const t = setTimeout(() => resolve(false), 12000);
-      im.onload = () => { clearTimeout(t); resolve(im.naturalWidth > 1 && im.naturalHeight > 1); };
-      im.onerror = () => { clearTimeout(t); resolve(false); };
-      im.src = url;
-    });
   }
 
   async function useManualUrl() {
@@ -142,20 +137,22 @@
       {/if}
       {#if covLoading}
         <p class="cov-msg">Buscando carátulas…</p>
-      {:else if covCands.length}
+      {:else if covVisibles.length}
         <div class="cov-grid">
-          {#each covCands as c}
+          {#each covVisibles as c (c.url)}
             <button
               class="cov-cand"
               onclick={() => setImagenAction(covCtx.obraId, c.url, { entradaId: covCtx.entradaId })}
               disabled={!!$busy}
               title="Usar esta carátula"
             >
-              <img src={c.url} alt={c.titulo} loading="lazy" />
+              <img src={c.url} alt={c.titulo} loading="lazy" onerror={() => covMark(c.url)} />
               <span class="cov-cap">{c.titulo}{c.anio ? ` · ${c.anio}` : ''}</span>
             </button>
           {/each}
         </div>
+      {:else if covCands.length}
+        <p class="cov-msg">Los candidatos encontrados no cargan — pega una URL manual.</p>
       {/if}
       <label class="fld cov-manual">
         <span class="lbl">O pega una URL de imagen</span>

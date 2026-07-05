@@ -103,13 +103,34 @@ async function steam(titulo: string): Promise<Cand[]> {
   const r = await fetch(u, { signal: AbortSignal.timeout(T) });
   if (!r.ok) throw new Error(`Steam ${r.status}`);
   const j = await r.json();
-  return ((j.items || []) as Record<string, unknown>[]).map((it) => ({
-    // patrón estable del corpus (§11.28); Steam no da año en storesearch
-    url: `https://cdn.cloudflare.steamstatic.com/steam/apps/${it.id}/header.jpg`,
+  // El patrón viejo cdn.cloudflare…/steam/apps/{id}/header.jpg NO existe para juegos recientes
+  // (assets bajo rutas con hash de contenido por-asset, no derivables). La URL buena del header
+  // la da appdetails (header_image); tiny_image de storesearch (231×87) queda de respaldo —
+  // siempre existe, así que NUNCA se devuelve una URL muerta.
+  const items = ((j.items || []) as Record<string, unknown>[]).map((it) => ({
+    url: String(it.tiny_image ?? ''),
     titulo: String(it.name),
-    anio: null,
-    fuente: 'steam'
+    anio: null as number | null,
+    fuente: 'steam',
+    _id: it.id as number
   }));
+  const top = rank(items as unknown as Cand[], titulo, null).slice(0, 5) as (Cand & { _id: number })[];
+  await Promise.all(
+    top.map(async (c) => {
+      try {
+        const ad = await fetch(`https://store.steampowered.com/api/appdetails?appids=${c._id}&filters=basic`, {
+          signal: AbortSignal.timeout(T)
+        });
+        if (!ad.ok) return; // rate limit/…: se queda tiny_image
+        const dj = await ad.json();
+        const hi = dj?.[String(c._id)]?.data?.header_image;
+        if (hi) c.url = String(hi);
+      } catch {
+        /* red: se queda tiny_image */
+      }
+    })
+  );
+  return top.filter((c) => c.url).map(({ _id: _drop, ...c }) => c);
 }
 
 async function openlibrary(titulo: string): Promise<Cand[]> {

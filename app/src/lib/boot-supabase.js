@@ -209,16 +209,32 @@ function patchImagen(obraId, url) {
   archiveEntries.update((list) => list.map((e) => (e.obra_id === obraId ? { ...e, imagen_url: url } : e)));
 }
 
-// Alta nueva: primer candidato por título+año; sin resultado → NULL (fallback tipográfico).
+// Valida que una URL carga como imagen REAL (onerror + descarta placeholders 1×1) antes de
+// guardarla. La usan la asignación automática y el campo "URL manual" del picker.
+export function testImage(url) {
+  return new Promise((resolve) => {
+    const im = new Image();
+    const t = setTimeout(() => resolve(false), 12000);
+    im.onload = () => { clearTimeout(t); resolve(im.naturalWidth > 1 && im.naturalHeight > 1); };
+    im.onerror = () => { clearTimeout(t); resolve(false); };
+    im.src = url;
+  });
+}
+
+// Alta nueva: primer candidato por título+año QUE CARGUE de verdad (una fuente puede devolver
+// una URL muerta — p. ej. carátulas de Steam con rutas cambiadas); se prueban hasta 3 antes de
+// rendirse. Sin resultado → NULL (fallback tipográfico).
 async function autoAssignCover(obraId, titulo, categoria, anio) {
   try {
     const cands = await data.buscarCaratula({ titulo, categoria, anio });
-    const best = cands?.[0];
-    if (!best?.url) return;
-    const res = await data.setImagen(obraId, best.url);
-    if (res?.ok) {
-      patchImagen(obraId, best.url);
-      logEvent('ok', `Carátula asignada automáticamente (${best.fuente}).`);
+    for (const cand of (cands || []).filter((c) => c?.url).slice(0, 3)) {
+      if (!(await testImage(cand.url))) continue; // muerta/corrupta → siguiente candidato
+      const res = await data.setImagen(obraId, cand.url);
+      if (res?.ok) {
+        patchImagen(obraId, cand.url);
+        logEvent('ok', `Carátula asignada automáticamente (${cand.fuente}).`);
+      }
+      return;
     }
   } catch (err) {
     logEvent('warn', `Sin carátula automática: ${err.message}`); // nunca rompe el alta
