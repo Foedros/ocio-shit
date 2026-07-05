@@ -7,7 +7,7 @@
   // tipográfico OBLIGATORIO en dos casos: URL NULL y error de carga (onerror) — pueden romperse.
   import { archiveEntries, detail } from '$lib/stores.js';
   import { openEntryDetail } from '$lib/boot-supabase.js';
-  import { tilt } from '$lib/motion.js';
+  import { tilt, haptic } from '$lib/motion.js';
   import { CATEGORIA_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion } from '$lib/format.js';
@@ -91,7 +91,12 @@
     return abs < 1 ? 1 - 0.36 * abs : Math.max(0.25, 0.8 - abs * 0.16);
   };
 
-  const move = (d) => (idx = Math.max(0, Math.min(count - 1, idx + d)));
+  // snap del carrusel → tick háptico sutil (10ms; silencioso en iOS, ver motion.js)
+  const move = (d) => {
+    const next = Math.max(0, Math.min(count - 1, idx + d));
+    if (next !== idx) haptic(10);
+    idx = next;
+  };
   // Tanda 3: la carátula CENTRAL tocada es el origen del vuelo al detalle (laterales solo centran)
   const onCoverClick = (off, it, el) =>
     off === 0
@@ -107,7 +112,7 @@
   let raf = null, cruiseDir = 0;
   const reduceMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const easeOut = (t) => 1 - Math.pow(1 - t, 3);
-  const commit = (d) => { const next = idx + d; if (next < 0 || next > count - 1) return false; idx = next; return true; };
+  const commit = (d) => { const next = idx + d; if (next < 0 || next > count - 1) return false; idx = next; haptic(10); return true; };
   function stopGlide() {
     if (raf) cancelAnimationFrame(raf);
     raf = null; cruiseDir = 0; frac = 0; gliding = false;

@@ -96,7 +96,7 @@
   <Login />
 {:else}
 <!-- MÓVIL: cabecera hamburguesa + título de sección + avatar. Escritorio: oculta (CSS). -->
-<header class="mhead">
+<header class="mhead" class:pushed={drawerOpen}>
   <button class="mh-burger" aria-label="Abrir menú" onclick={() => (drawerOpen = true)}>
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
   </button>
@@ -116,7 +116,9 @@
   <button class:active={view === 'cuenta'} onclick={() => (view = 'cuenta')}>Cuenta</button>
 </nav>
 
-<div class="page">
+<!-- pushed (Tanda 6): parallax de profundidad al abrir el drawer — SOLO móvil; el wrapper no
+     contiene nada fixed (drawer/FAB/sheets viven fuera → su posicionamiento no se rompe) -->
+<div class="page" class:pushed={drawerOpen}>
 {#if view === 'home'}
   <HomePanel onnavigate={(v) => (view = v)} onregister={() => (showAdd = true)} />
 {:else if view === 'diario'}
@@ -460,6 +462,25 @@
     .drawer .scrim,
     .drawer .panel {
       transition: none;
+    }
+  }
+
+  /* ── DRAWER PARALLAX (Tanda 6, SOLO móvil + no-preference): al abrir el drawer, el contenido
+     de fondo se empuja ~20px a la derecha, escala 0,98 y se oscurece (solo transform+opacity —
+     capa compositada; el oscurecimiento extra es opacity, además del scrim). Reduced-motion:
+     este bloque ni aplica (solo scrim). Escritorio: sin drawer, intacto. ── */
+  @media (max-width: 700px) and (prefers-reduced-motion: no-preference) {
+    .page,
+    .mhead {
+      transition:
+        transform var(--dur-base) var(--ease),
+        opacity var(--dur-base) var(--ease);
+      will-change: transform;
+    }
+    .page.pushed,
+    .mhead.pushed {
+      transform: translateX(20px) scale(0.98);
+      opacity: 0.62;
     }
   }
 

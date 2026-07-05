@@ -6,7 +6,8 @@
   // conseguido solo). El título equipado se guarda por RPC INVOKER (ocio_set_titulo_activo).
   import { onMount } from 'svelte';
   import { displayName } from '$lib/stores.js';
-  import { stats, evaluateLogros, getProfile, setTituloActivo, progresion } from '$lib/db/supabase-data.js';
+  import { stats, evaluateLogros, getProfile, setTituloActivo, progresion, syncUnlocks } from '$lib/db/supabase-data.js';
+  import { haptic } from '$lib/motion.js';
   import Skeleton from './Skeleton.svelte';
 
   let loading = $state(true);
@@ -29,6 +30,14 @@
       logros = l;
       activoId = p?.titulo_activo_id ?? null;
       prog = pr;
+      // Sella en el ledger los desbloqueos NUEVOS con la fecha de HOY (§11.13, going-forward;
+      // el baseline histórico ya registrado se respeta — la RPC es idempotente). Fire-and-forget:
+      // no bloquea el render. Un logro recién desbloqueado → haptic doble (silencioso en iOS).
+      syncUnlocks(l)
+        .then((r) => {
+          if (r?.recorded > 0) haptic([12, 70, 12]);
+        })
+        .catch(() => {});
     } catch (e) {
       error = e.message;
     } finally {

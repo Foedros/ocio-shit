@@ -3,7 +3,7 @@
   import RatingSlider from './RatingSlider.svelte';
   import { detail, role, busy } from '$lib/stores.js';
   import { closeDetail, openObraDetail, openEntryDetail, deleteEntryAction, updateEntryAction, setCanonAction, setEnCursoAction, buscarCaratula, setImagenAction, testImage } from '$lib/boot-supabase.js';
-  import { confettiBurst, tilt } from '$lib/motion.js';
+  import { confettiBurst, tilt, haptic } from '$lib/motion.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS, FECHA_TIPO_LABELS, generoLabel } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion, fmtDuracion } from '$lib/format.js';
@@ -118,6 +118,7 @@
         duracion_min
       });
       if (burstAt) confettiBurst(burstAt, col(e.categoria).c); // color de la categoría
+      haptic(15); // confirmación háptica del guardado (silenciosa en iOS)
       editing = false; // la acción recarga el detalle con los valores nuevos
     } catch {
       /* el toast de error lo lanza la acción; nos quedamos en edición */

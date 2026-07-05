@@ -103,6 +103,22 @@ function getObserver(threshold) {
   return o;
 }
 
+// ── Haptics coreografiados (Tanda 6) ─────────────────────────────────────────────────────
+// Vibración sutil vía Vibration API con feature-detect ESTRICTO: iOS Safari/PWA NO tiene
+// navigator.vibrate → degrada EN SILENCIO (ni error, ni fallback falso); funciona en Android.
+// Con reduced-motion, desactivados. Patrones: snap del carrusel 10ms · guardar 15ms ·
+// desbloquear logro [12,70,12] (doble corto).
+export function haptic(pattern = 10) {
+  try {
+    if (prefersReducedMotion()) return;
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    /* jamás rompe el flujo que lo dispara */
+  }
+}
+
 // ── Tilt 3D holográfico (Tanda 5) ────────────────────────────────────────────────────────
 // Acción para carátulas protagonistas (detalle + central de la Galería; NO el grid): rota
 // sutilmente en 3D siguiendo cursor/dedo (rotateX/Y máx ~8°, perspective) con un BRILLO

@@ -4,7 +4,7 @@
   // para que las obras nuevas nazcan con los mismos datos que las enriquecidas por API. Create-vs-link:
   // si el título ya existe, se detecta y se PRE-RELLENA para confirmar/corregir (no se duplica).
   import { addEntryAction, lookupObra, listGeneros } from '$lib/boot-supabase.js';
-  import { confettiBurst } from '$lib/motion.js';
+  import { confettiBurst, haptic } from '$lib/motion.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { CATEGORIAS, ROL_CREADOR_LABEL, generoLabel, slugifyGenero } from '$lib/db/queries.js';
   import { busy, role, showToast } from '$lib/stores.js';
@@ -157,6 +157,7 @@
       });
       showToast(`Entrada guardada${res.obraCreated ? '' : ' · reconsumo ' + res.numReconsumo}`);
       if (burstAt) confettiBurst(burstAt, CAT_COLOR[categoria]?.c ?? '#F2A65A'); // color de la categoría guardada
+      haptic(15); // confirmación háptica del guardado (silenciosa en iOS)
       reset();
       onsaved?.();
     } catch {
