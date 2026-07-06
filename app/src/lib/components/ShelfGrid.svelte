@@ -1,42 +1,44 @@
 <script>
-  // Vista ESTANTERÍA del Diario (tercera vista, tipo Letterboxd): grid de carátulas puras,
-  // columnas responsivas (móvil ~3 · escritorio 6-8), tap → detalle. Recibe items YA
-  // deduplicados por obra (ArchiveList: primera aparición = entrada más reciente).
-  //
-  // VIRTUALIZADO por filas (misma técnica que VirtualList, con filas de `cols` celdas):
-  // ~4.500 obras nunca montan más de ~60-80 celdas. Las imágenes además van loading=lazy.
-  //
-  // Overlay discreto (título + nota): hover en escritorio (@media hover) · LONG-PRESS en
-  // móvil (~450ms; el tap corto abre el detalle). En reposo, solo carátulas limpias.
+  // Vista ESTANTERÍA-VIDEOCLUB del Diario (§11.55) · diseño: diseno/Ocio Shit - Estanteria
+  // Videoclub.html. DVDs de canto sobre baldas de madera: se ven los LOMOS (título vertical +
+  // color de categoría + nota); la carátula asoma en escorzo ~40° (giro 3D real del lomo a 90°).
+  // Hover/dedo-quieto = la caja DESLIZA en el eje del lomo (translateX, sin rotar) mostrando más
+  // carátula; clic = extrae+gira a frontal → View Transition a la carátula del detalle (§11.39).
+  // Recibe items YA deduplicados por obra (ArchiveList). VIRTUALIZADO por filas (baldas): de
+  // ~4.500 obras solo montan ~pocas baldas. Solo transform → 60fps. Carátula = imagen_url con
+  // tratamiento estuche (relleno borroso + arte contain); fallback tipográfico (NULL/onerror).
+  import { base } from '$app/paths';
   import { CAT_COLOR } from '$lib/theme.js';
   import { CATEGORIA_LABELS } from '$lib/db/queries.js';
   import { openEntryDetail } from '$lib/boot-supabase.js';
+  import { detail } from '$lib/stores.js';
   import { fmtValoracion } from '$lib/format.js';
+  import { prefersReducedMotion } from '$lib/motion.js';
 
   let { items = [], resetKey = undefined } = $props();
 
-  const GAP = 8;
-  const OVERSCAN = 3;
+  const GAP = 0;
+  const OVERSCAN = 2;
   let viewport = $state(null);
   let width = $state(360);
   let height = $state(480);
   let scrollTop = $state(0);
+  const reduced = prefersReducedMotion();
 
-  // URLs cuya imagen falló (onerror) → fallback tipográfico. Clave por URL (como GalleryFlow):
-  // si la carátula se repara, la URL nueva no está en el Set y se re-intenta sola.
+  // URLs cuya imagen falló (onerror) → fallback tipográfico (lomo sin arte). Clave por URL.
   let broken = $state(new Set());
   const markBroken = (url) => (broken = new Set(broken).add(url));
 
-  // Carátulas HORIZONTALES (headers de Steam 460×215 y similares): tratamiento "ESTUCHE"
-  // (§11.50) — la celda sigue 2:3 pero la imagen va CONTAIN entera (legible) sobre su propio
-  // blur ampliado y oscurecido (patrón del modo cine). Detección por ratio REAL al cargar
-  // (naturalWidth>naturalHeight — cubre también akamai hasheado/IMDb, no solo steamstatic);
-  // Set por URL: la ventana virtualizada re-monta celdas y así nacen ya en modo estuche.
-  let wide = $state(new Set());
-  const checkWide = (e, url) => {
-    const im = e.currentTarget;
-    if (im.naturalWidth > im.naturalHeight && !wide.has(url)) wide = new Set(wide).add(url);
-  };
+  // DVD extraído (queda en modo "pulling" mientras el detalle está abierto; vuelve al cerrarse).
+  // El efecto SOLO depende de $detail: al abrirse marca sawDetail; al cerrarse (tras haber estado
+  // abierto) devuelve la caja. Si dependiera de takenKey, se limpiaría durante los 430ms del pull
+  // (el detalle aún no está abierto) y el "pulling" no llegaría a verse.
+  let takenKey = $state(null);
+  let sawDetail = false;
+  $effect(() => {
+    if ($detail) sawDetail = true;
+    else if (sawDetail) { sawDetail = false; takenKey = null; }
+  });
 
   $effect(() => {
     if (!viewport) return;
@@ -50,27 +52,40 @@
     return () => ro.disconnect();
   });
 
-  // Al cambiar los filtros, la estantería vuelve al principio (mismo criterio que la lista).
+  // Al cambiar filtros, vuelve al principio (mismo criterio que la lista).
   let lastReset = $state(resetKey);
   $effect(() => {
     if (resetKey === lastReset) return;
     lastReset = resetKey;
     scrollTop = 0;
-    pressedId = null;
     if (viewport) viewport.scrollTop = 0;
   });
 
-  // Geometría: celdas 2:3 (póster; los headers anchos de Steam se recortan, como Letterboxd).
-  let cols = $derived(Math.max(3, Math.min(8, Math.floor(width / 120))));
-  let cellW = $derived((width - GAP * (cols - 1)) / cols);
-  let rowH = $derived(cellW * 1.5 + GAP);
+  // ── geometría: móvil 4 / escritorio 7 lomos por balda; H se ajusta al ancho ──
+  // cada DVD avanza (CW − SP·0.5) = H·0.592; el último añade su carátula completa (0.075H) y el
+  // lomo plegado sobresale (0.15H) → ancho ≈ H·(0.592·cols + 0.225) + padding. Se despeja H.
+  let cols = $derived(width < 560 ? 4 : 7);
+  const PAD = 22;
+  let H = $derived(Math.max(128, Math.min(210, Math.floor((width - 2 * PAD) / (0.592 * cols + 0.28)))));
+  let SP = $derived(Math.round(H * 0.15)); // grosor de la caja (lomo)
+  let CW = $derived(Math.round(H * 0.667)); // ancho UNIFORME de carátula (2:3)
+  let overlap = $derived(Math.round(-SP * 0.5)); // solape (canto) — DVDs apretados
+  let tx = $derived(Math.round(H * 0.22)); // deslizamiento en hover
+  let txPull = $derived(Math.round(H * 0.42)); // extracción al clicar
+  const PLANK = 18;
+  let rowH = $derived(H + PLANK + 30); // caja + plancha + respiro de la siguiente balda
+
   let rows = $derived(Math.ceil(items.length / cols));
-  let total = $derived(Math.max(0, rows * rowH - GAP)); // la última fila no lleva gap
+  let total = $derived(Math.max(0, rows * rowH));
   let startRow = $derived(Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN));
   let visRows = $derived(Math.ceil(height / rowH) + OVERSCAN * 2);
-  let slice = $derived(items.slice(startRow * cols, (startRow + visRows) * cols));
+  let slice = $derived(
+    Array.from({ length: Math.min(visRows, rows - startRow) }, (_, i) => {
+      const r = startRow + i;
+      return { r, items: items.slice(r * cols, r * cols + cols) };
+    })
+  );
 
-  // Seguridad: si la lista encoge por debajo del scroll actual, reajusta (sin saltar al top).
   $effect(() => {
     const maxTop = Math.max(0, total - height);
     if (scrollTop > maxTop) {
@@ -80,229 +95,293 @@
   });
 
   const col = (cat) => CAT_COLOR[cat] ?? { c: 'var(--ink-3)', tint: 'var(--ink-2)' };
+  const catLabel = (cat) => CATEGORIA_LABELS[cat] ?? cat;
+  const hasImg = (it) => it.imagen_url && !broken.has(it.imagen_url);
 
-  // ── Long-press (móvil): muestra el overlay SIN abrir el detalle; tap corto → detalle ──
-  // JITTER: un dedo sosteniendo 450ms SIEMPRE deriva unos px (lección de GalleryFlow §11.32);
-  // el timer solo se cancela si el movimiento supera el umbral (= scroll real, no temblor).
-  const JITTER = 8;
-  let pressedId = $state(null);
-  let pressTimer = null;
-  let suppressClick = false;
-  let pressX = 0;
-  let pressY = 0;
-  function tStart(e, it) {
-    suppressClick = false;
-    if (pressedId && pressedId !== it.entrada_id) pressedId = null; // tocar otra celda limpia
-    const t = e.touches?.[0];
-    pressX = t?.clientX ?? 0;
-    pressY = t?.clientY ?? 0;
-    clearTimeout(pressTimer);
-    pressTimer = setTimeout(() => {
-      pressedId = it.entrada_id;
-      suppressClick = true; // el release de ESTE long-press no abre el detalle
-    }, 450);
-  }
-  const tCancel = () => clearTimeout(pressTimer);
-  function tMove(e) {
-    const t = e.touches?.[0];
-    if (!t) return;
-    if (Math.abs(t.clientX - pressX) > JITTER || Math.abs(t.clientY - pressY) > JITTER) {
-      clearTimeout(pressTimer); // movimiento de verdad (scroll) — el temblor no cancela
-    }
-  }
-  function cellClick(it, ev) {
-    if (suppressClick) {
-      suppressClick = false;
-      return;
-    }
-    // Tanda 3: la carátula tocada es el ORIGEN del vuelo hacia el detalle (fallback null = sin
-    // vuelo). :not(.bg): en modo estuche el primer img es el RELLENO borroso — vuela la nítida.
-    openEntryDetail(it.entrada_id, { fromEl: ev?.currentTarget?.querySelector('img:not(.bg)') ?? null });
-  }
   function onScroll(e) {
     scrollTop = e.currentTarget.scrollTop;
-    clearTimeout(pressTimer);
-    pressedId = null;
+  }
+
+  // clic = extraer (gira a frontal) → tras la animación, View Transition al detalle desde la
+  // carátula NÍTIDA (img:not(.bg); el estuche pone un .bg borroso delante). Reduced: directo.
+  function pull(it, cardEl) {
+    takenKey = it.entrada_id;
+    const go = () => openEntryDetail(it.entrada_id, { fromEl: cardEl?.querySelector('.cover img:not(.bg), .cover .fb') ?? null });
+    if (reduced) { go(); return; }
+    setTimeout(go, 430);
   }
 </script>
 
-<div class="viewport" bind:this={viewport} onscroll={onScroll}>
+<div class="viewport" bind:this={viewport} onscroll={onScroll} style="--wood:url({base}/wood.jpg)">
   <div class="spacer" style="height:{total}px">
-    <div
-      class="window"
-      style="transform: translateY({startRow * rowH}px); grid-template-columns: repeat({cols}, 1fr); gap:{GAP}px"
-    >
-      {#each slice as it (it.entrada_id)}
-        <button
-          class="cell"
-          style="--c:{col(it.categoria).c}; --t:{col(it.categoria).tint}"
-          onclick={(e) => cellClick(it, e)}
-          ontouchstart={(e) => tStart(e, it)}
-          ontouchend={tCancel}
-          ontouchmove={tMove}
-          ontouchcancel={tCancel}
-          oncontextmenu={(e) => e.preventDefault()}
-          aria-label={it.titulo}
-          title={it.titulo}
-        >
-          {#if it.imagen_url && !broken.has(it.imagen_url)}
-            {#if wide.has(it.imagen_url)}
-              <!-- relleno estuche: la MISMA imagen (mismo fetch, ya decodificada) ampliada+blur -->
-              <img class="bg" src={it.imagen_url} alt="" aria-hidden="true" loading="lazy" draggable="false" />
-            {/if}
-            <img
-              class:fit={wide.has(it.imagen_url)}
-              src={it.imagen_url}
-              alt=""
-              loading="lazy"
-              draggable="false"
-              onload={(e) => checkWide(e, it.imagen_url)}
-              onerror={() => markBroken(it.imagen_url)}
-            />
-          {:else}
-            <span class="fb">
-              <span class="fb-t">{it.titulo}</span>
-              <span class="fb-c">{CATEGORIA_LABELS[it.categoria] ?? it.categoria}</span>
-            </span>
-          {/if}
-          <span class="ol" class:show={pressedId === it.entrada_id}>
-            <span class="ol-t">{it.titulo}</span>
-            {#if it.valoracion != null}<span class="ol-v">{fmtValoracion(it.valoracion)}</span>{/if}
-          </span>
-        </button>
-      {/each}
-    </div>
+    {#each slice as { r, items: rowItems } (r)}
+      <div class="row" style="transform: translateY({r * rowH}px); height:{rowH}px">
+        <div class="balda" style="--sp:{SP}px; --cw:{CW}px; --h:{H}px; --tx:{tx}px; --txp:{txPull}px; padding:0 {PAD}px">
+          {#each rowItems as it, i (it.entrada_id)}
+            <button
+              class="dvd"
+              class:pulling={takenKey === it.entrada_id}
+              style="width:{CW}px; height:{H}px; margin-right:{overlap}px; z-index:{cols - i}"
+              onclick={(e) => pull(it, e.currentTarget)}
+              aria-label={it.titulo}
+              title={it.titulo}
+            >
+              <span class="cover" style="width:{CW}px; height:{H}px">
+                {#if hasImg(it)}
+                  <img class="bg" src={it.imagen_url} alt="" aria-hidden="true" loading="lazy" draggable="false" />
+                  <img src={it.imagen_url} alt="" loading="lazy" draggable="false" onerror={() => markBroken(it.imagen_url)} />
+                {:else}
+                  <span class="fb" style="background:{col(it.categoria).c}; padding:{Math.round(H * 0.1)}px">
+                    <span class="fb-t" style="font-size:{Math.round(H * 0.09)}px">{it.titulo}</span>
+                  </span>
+                {/if}
+                <span class="cglow"></span>
+              </span>
+              <span class="spine" style="width:{SP}px">
+                <span class="stripe" style="background:{col(it.categoria).c}"></span>
+                <span class="sdot" style="width:{Math.round(SP * 0.4)}px; height:{Math.round(SP * 0.4)}px; background:{col(it.categoria).c}"></span>
+                <span class="vtitle" style="font-size:{Math.min(SP * 0.5, 15)}px; max-height:{H - SP * 1.6}px">{it.titulo}</span>
+                <span class="sscore" style="font-size:{Math.round(SP * 0.3)}px">{it.valoracion != null ? fmtValoracion(it.valoracion) : ''}</span>
+              </span>
+            </button>
+          {/each}
+        </div>
+        <div class="plank" style="height:{PLANK}px; background-image: linear-gradient(rgba(11,10,8,.16),rgba(11,10,8,.28)), url({base}/wood.jpg)"></div>
+      </div>
+    {/each}
   </div>
+  <div class="credits lbl">IMÁGENES: TMDB · STEAM · OPENLIBRARY · TEXTURAS: textures4photoshop.com</div>
 </div>
 
 <style>
   .viewport {
+    position: relative;
     overflow-y: auto;
-    height: min(62vh, 580px);
-    border: 1px solid var(--line);
+    overflow-x: hidden;
+    height: min(66vh, 620px);
+    border: 1px solid #24170d;
     border-radius: var(--radius);
-    background: var(--surface);
-    padding: 0;
+    /* balda de madera: textura tileada (420px) + vignette oscura para que la UI lea */
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(8, 7, 5, 0.2), rgba(8, 7, 5, 0.72)),
+      linear-gradient(rgba(11, 10, 8, 0.18), rgba(11, 10, 8, 0.18)),
+      var(--wood);
+    background-size: cover, auto, 420px auto;
+    background-repeat: no-repeat, repeat, repeat;
+    box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.6);
     overscroll-behavior: contain;
   }
   .spacer {
     position: relative;
     width: 100%;
   }
-  .window {
+  .row {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    display: grid;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
     will-change: transform;
   }
-  .cell {
+  /* balda: perspectiva compartida, lomos apretados, apoyados en la plancha */
+  .balda {
     position: relative;
-    aspect-ratio: 2 / 3;
-    padding: 0;
-    border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--surface-2);
-    cursor: pointer;
-    display: block;
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    user-select: none;
+    display: flex;
+    align-items: flex-end;
+    width: max-content;
+    max-width: 100%;
   }
-  .cell img {
+
+  /* la carátula mira al usuario en escorzo ~40°; el lomo es el grosor en el lado que se aleja */
+  .dvd {
+    position: relative;
+    flex: none;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    transform-style: preserve-3d;
+    transform-origin: center center;
+    transform: perspective(1400px) rotateY(-40deg);
+    transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s;
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+  .dvd::after {
+    content: '';
+    position: absolute;
+    left: 6%;
+    right: 6%;
+    bottom: -6px;
+    height: 14px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(0, 0, 0, 0.55), transparent 72%);
+    pointer-events: none;
+  }
+  .cover {
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 3px;
+    overflow: hidden;
+    box-shadow: 0 22px 38px rgba(0, 0, 0, 0.55);
+    background: var(--surface-2);
+    backface-visibility: hidden;
+  }
+  /* estuche: arte CONTAIN sobre su propio relleno borroso (§11.50) — poster llena, header letterbox */
+  .cover img {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
   }
-  /* ESTUCHE (imagen horizontal): el header entero, centrado, sobre su propio blur */
-  .cell img.fit {
-    object-fit: contain;
-  }
-  .cell img.bg {
+  .cover img.bg {
     object-fit: cover;
-    filter: blur(14px) brightness(0.55) saturate(1.05);
-    /* scale tapa el sangrado transparente del blur en los bordes; translateZ = capa
-       compositada rasterizada UNA vez (el scroll no repinta — patrón del modo cine) */
-    transform: scale(1.4) translateZ(0);
+    filter: blur(14px) brightness(0.55) saturate(1.1);
+    transform: scale(1.3) translateZ(0);
   }
-  /* Fallback tipográfico (imagen_url NULL o rota): color de categoría + título */
   .fb {
     position: absolute;
     inset: 0;
     display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    padding: 0.5rem 0.45rem;
-    background: color-mix(in srgb, var(--c) 16%, var(--surface-2));
-    text-align: left;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
   }
   .fb-t {
     font-family: var(--font-display);
-    font-size: 0.8rem;
-    line-height: 1.25;
-    color: var(--ink);
+    color: #0b0a08;
+    font-weight: 500;
+    line-height: 1.12;
     overflow: hidden;
     display: -webkit-box;
-    -webkit-line-clamp: 5;
+    -webkit-line-clamp: 6;
     -webkit-box-orient: vertical;
-    word-break: break-word;
   }
-  .fb-c {
-    font-family: var(--font-data);
-    font-size: 0.52rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--t);
-  }
-  /* Overlay discreto: gradiente inferior con título + nota. Reposo = carátula limpia. */
-  .ol {
+  .cglow {
     position: absolute;
     inset: 0;
+    background: linear-gradient(105deg, rgba(255, 255, 255, 0.16), transparent 48%);
+    opacity: 0.35;
+    transition: opacity 0.4s;
+    pointer-events: none;
+  }
+  /* lomo: bisagra en el borde derecho de la carátula, plegándose atrás → grosor visible */
+  .spine {
+    position: absolute;
+    top: 0;
+    left: 100%;
+    height: 100%;
+    transform-origin: left center;
+    transform: rotateY(90deg);
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
-    gap: 0.1rem;
-    padding: 0.45rem 0.5rem;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.35) 45%, transparent 70%);
-    opacity: 0;
-    transition: opacity 0.16s ease;
-    pointer-events: none;
-    text-align: left;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    background: linear-gradient(90deg, #1c1811, #16130e 55%, #0d0b08);
+    border-radius: 0 2px 2px 0;
+    box-shadow: inset 5px 0 9px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    backface-visibility: hidden;
   }
-  .ol.show {
+  .stripe {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+  }
+  .sdot {
+    border-radius: 50%;
+    opacity: 0.85;
+    flex: none;
+  }
+  .vtitle {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-family: var(--font-display);
+    color: #ede4d3;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sscore {
+    font-family: var(--font-data);
+    color: var(--gold);
+    flex: none;
+  }
+
+  /* hover/foco: DESLIZA a la derecha en el sentido del lomo, SIN rotar (transform no aplana el
+     3D). El brillo va en los HIJOS (un filter sobre .dvd aplanaría el preserve-3d). */
+  .dvd:hover,
+  .dvd:focus-visible {
+    transform: perspective(1400px) translateX(var(--tx)) rotateY(-40deg);
+    z-index: 60 !important;
+  }
+  .dvd:hover .cover,
+  .dvd:focus-visible .cover {
+    filter: brightness(1.15) saturate(1.05);
+  }
+  .dvd:hover .spine,
+  .dvd:focus-visible .spine {
+    filter: brightness(1.3);
+  }
+  .dvd:hover .cglow,
+  .dvd:focus-visible .cglow {
     opacity: 1;
   }
-  @media (hover: hover) {
-    .cell:hover .ol,
-    .cell:focus-visible .ol {
-      opacity: 1;
-    }
+  /* extracción: sale a la derecha, gira a frontal, se ilumina (queda "en tus manos" = el detalle) */
+  .dvd.pulling {
+    transition: transform 0.6s cubic-bezier(0.4, 1, 0.4, 1), opacity 0.4s;
+    transform: perspective(1400px) translateX(var(--txp)) scale(1.05) rotateY(-12deg) !important;
+    z-index: 80 !important;
   }
-  .ol-t {
-    font-family: var(--font-display);
-    font-size: 0.78rem;
-    line-height: 1.2;
-    color: #fff;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
+  .dvd.pulling .cover {
+    filter: brightness(1.15);
   }
-  .ol-v {
-    font-family: var(--font-data);
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: var(--gold);
-    font-variant-numeric: tabular-nums;
+
+  .plank {
+    margin-top: -2px;
+    border-radius: 3px;
+    background-size: auto, 420px auto;
+    background-repeat: repeat, repeat;
+    box-shadow: 0 16px 30px rgba(0, 0, 0, 0.55), inset 0 2px 0 rgba(242, 166, 90, 0.16), inset 0 -3px 6px rgba(0, 0, 0, 0.5);
   }
+  .credits {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    display: block;
+    text-align: center;
+    font-size: 8px;
+    color: #5a4a36;
+    padding: 6px 0 4px;
+    background: linear-gradient(rgba(8, 7, 5, 0), rgba(8, 7, 5, 0.75) 60%);
+    pointer-events: none;
+    letter-spacing: 0.1em;
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .ol {
-      transition: none;
+    .dvd {
+      transition: opacity 0.3s !important;
+      transform: perspective(1400px) rotateY(-24deg);
+    }
+    .dvd:hover,
+    .dvd:focus-visible {
+      transform: perspective(1400px) rotateY(-24deg);
+    }
+    .dvd:hover .cover,
+    .dvd:hover .spine {
+      filter: none;
+    }
+    .dvd.pulling {
+      transform: perspective(1400px) rotateY(-24deg) !important;
     }
   }
 </style>

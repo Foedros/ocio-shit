@@ -45,8 +45,8 @@
       <button type="button" class="vbtn" class:on={$archiveView === 'galeria'} onclick={() => archiveView.set('galeria')} aria-label="Galería" title="Galería (cover flow)">
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="5.6" y="2.8" width="4.8" height="10.4" rx="1" /><path d="M2.8 5v6M13.2 5v6" /></svg>
       </button>
-      <button type="button" class="vbtn" class:on={$archiveView === 'estanteria'} onclick={() => archiveView.set('estanteria')} aria-label="Estantería" title="Estantería (grid)">
-        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="2.2" y="2.2" width="4.8" height="4.8" rx="0.9" /><rect x="9" y="2.2" width="4.8" height="4.8" rx="0.9" /><rect x="2.2" y="9" width="4.8" height="4.8" rx="0.9" /><rect x="9" y="9" width="4.8" height="4.8" rx="0.9" /></svg>
+      <button type="button" class="vbtn" class:on={$archiveView === 'estanteria'} onclick={() => archiveView.set('estanteria')} aria-label="Estantería" title="Estantería (videoclub)">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.6v8.8M6 2.6v8.8M9.4 3.2l2.9 8.3" /><path d="M1.8 13.4h12.4" /></svg>
       </button>
     </div>
   </div>
