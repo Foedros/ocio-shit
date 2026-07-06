@@ -104,13 +104,9 @@
     will-change: transform, opacity;
   }
 
-  /* Durante la "carátula que vuela" (html.vt-fly, lo pone flyOpen) el sheet NO compite con su
-     animación de entrada: la View Transition captura el estado nuevo EN VIVO y el sheetUp
-     deslizándose ensuciaba/rompía el vuelo (visible sobre todo en iOS §11.46). Sin vuelo, el
-     sheet entra con su animación de siempre. */
-  :global(html.vt-fly .sheet) {
-    animation: none !important;
-  }
+  /* La supresión del sheetUp durante la "carátula que vuela" vive en Sheet.svelte
+     (.sheet.no-entry, decidida AL NACER el sheet): la regla html.vt-fly .sheet que hubo aquí
+     RE-ARRANCABA la animación al retirarse la clase (flash gigante, §11.49). */
 
   /* prefers-reduced-motion GLOBAL: mata toda animación/transición no esencial (patrón
      0.01ms — los estados finales se aplican, el movimiento no). Las animaciones JS (rAF)

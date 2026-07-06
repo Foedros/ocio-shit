@@ -211,7 +211,9 @@
       <div class="d-cover">
         <!-- tilt 3D holográfico (Tanda 5): hover/dedo-quieto; el brillo lo inyecta la acción -->
         <div class="holo" use:tilt>
-          <img src={e.imagen_url} alt="Carátula de {e.titulo}" loading="lazy" draggable="false" style="view-transition-name: cover-fly" />
+          <!-- SIN loading=lazy: es el destino del vuelo — la View Transition captura su rect al
+               abrir y un lazy sin cargar daría un tamaño inestable en la captura -->
+          <img src={e.imagen_url} alt="Carátula de {e.titulo}" draggable="false" style="view-transition-name: cover-fly" />
         </div>
       </div>
     {/if}
@@ -307,7 +309,7 @@
     </div>
     {#if o.imagen_url}
       <div class="cov-current obra-cov">
-        <img src={o.imagen_url} alt="Carátula de {o.titulo}" loading="lazy" style="view-transition-name: cover-fly" />
+        <img src={o.imagen_url} alt="Carátula de {o.titulo}" style="view-transition-name: cover-fly" />
       </div>
     {/if}
     {#if $role === 'leader'}

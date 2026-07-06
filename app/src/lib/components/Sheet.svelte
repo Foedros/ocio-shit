@@ -5,13 +5,21 @@
   // y desenfocada, oscurecida hacia el fondo museo en los bordes (estilo Apple TV). Usa la
   // MISMA w342 ya cacheada (mismo src = cero re-fetch); blur+scale en capa compositada.
   let { open = false, title = '', eyebrow = '', onclose, backdrop = null, children } = $props();
+
+  // Un sheet que NACE durante una "carátula que vuela" (html.vt-fly) no corre su animación de
+  // entrada NUNCA. Suprimirla solo mientras duraba el vuelo (regla html.vt-fly .sheet en +layout)
+  // la RE-ARRANCABA al retirarse la clase — animation:none→sheetUp cuenta como animación nueva
+  // desde el keyframe 0 → el sheet saltaba a translateY(100%) y re-subía barriendo la pantalla
+  // con el cine recién montado a bordo (el "flash gigante", §11.49). Se evalúa AL ABRIR y queda
+  // fijo para esa apertura (vt-fly es transitoria; classList no es reactivo y no debe serlo).
+  let noEntry = $derived(open && typeof document !== 'undefined' && document.documentElement.classList.contains('vt-fly'));
 </script>
 
 <svelte:window onkeydown={(e) => open && e.key === 'Escape' && onclose?.()} />
 
 {#if open}
   <div class="scrim" role="presentation" onclick={onclose}>
-    <div class="sheet" class:cine-on={!!backdrop} role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+    <div class="sheet" class:cine-on={!!backdrop} class:no-entry={noEntry} role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
       {#if backdrop}
         <div class="cine" aria-hidden="true"><img src={backdrop} alt="" draggable="false" /></div>
       {/if}
@@ -175,6 +183,11 @@
   }
   .x:hover {
     color: var(--ink);
+  }
+  /* nacido en pleno vuelo: sin animación de entrada (móvil sheetUp Y escritorio scaleIn) —
+     la View Transition ya lleva la continuidad visual */
+  .sheet.no-entry {
+    animation: none;
   }
   @keyframes sheetUp {
     from {
