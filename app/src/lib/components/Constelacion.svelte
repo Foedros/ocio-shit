@@ -4,20 +4,27 @@
   // categoría dominante), clustering por gravedad suave hacia 5 anclas, deriva sutil (rAF único,
   // pausado con la pestaña oculta o cerrado). Tap → constelación encendida (satélites con
   // carátula, resto atenuado) + panel (nombre · nº obras · nota media · obras → detalle).
-  // ESCALA (decisión del diseño): top ~60 grandes + ~60 de profundidad; búsqueda salta a
-  // cualquiera de los ~3.000 (RPC p_buscar) y el zoom revela nombres (LOD). Reduced-motion:
+  // ESCALA (§11.54, revelado adaptativo tipo mapa): arranca con el núcleo RICO (top 120 con
+  // obras) y, al ACERCAR el zoom, revela más estrellas del pool ligero (todos los ~3.000
+  // creadores, sin obras — se cargan al tocar). La búsqueda salta a cualquiera (RPC p_buscar) y
+  // el zoom revela nombres (LOD). Repulsión solo entre el núcleo → escala a miles. Reduced-motion:
   // cielo ESTÁTICO navegable (sin deriva). Overlay a pantalla completa FUERA de .page (§11.43);
   // la X y el BACK del navegador cierran (pushState/popstate).
   import { get } from 'svelte/store';
   import { constelOpen, detail } from '$lib/stores.js';
-  import { constelacion } from '$lib/db/supabase-data.js';
+  import { constelacion, constelacionLight } from '$lib/db/supabase-data.js';
   import { openObraDetail, closeDetail } from '$lib/boot-supabase.js';
   import { prefersReducedMotion } from '$lib/motion.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { CATEGORIA_LABELS } from '$lib/db/queries.js';
 
   const CORE = 60; // tier con nombre/repulsión (validado a 60fps con 120 en el cielo)
-  const LIMIT = 120;
+  const LIMIT = 120; // núcleo RICO (con obras) del arranque
+  // Revelado adaptativo por zoom (§11.54): al acercar, se revelan más estrellas del pool ligero
+  // (hasta RENDER_CAP, medido a 60fps). Repulsión SOLO entre el núcleo → escala a miles de dots.
+  const RENDER_CAP = 1600;
+  const SPAWN_PER_FRAME = 32; // estrellas que "aparecen" por frame al acercar (fade suave)
+  const DESPAWN_PER_FRAME = 48; // se retiran de la cola al alejar
   const reduced = prefersReducedMotion();
   const CATS = ['pelicula', 'serie', 'libro', 'videojuego', 'comic'];
   const colOf = (cat) => CAT_COLOR[cat]?.c ?? '#8A6F4A';
@@ -27,10 +34,17 @@
   let loading = $state(false);
   let total = $state(0);
   let selected = $state(null); // nodo seleccionado (raw)
+  let selObras = $state([]); // obras del seleccionado (reactivo; los nodos profundos las cargan al tocar)
+  let selNota = $state(null);
   let catFilter = $state('all');
   let searchQ = $state('');
   let searchOpen = $state(false);
   let visibles = $state(0);
+
+  // pool ligero para el revelado adaptativo (todos los creadores {id,nombre,n,cat}, sin obras)
+  let deepPool = [];
+  let poolLoaded = false;
+  let poolLoading = false;
 
   // mundo (no reactivo: lo maneja el rAF)
   let nodes = [];
@@ -46,6 +60,7 @@
 
   const grp = (s) => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   const fmtNota = (n) => (n == null ? '—' : String(Number(n).toFixed(1)).replace('.', ','));
+  const isSel = (n, sel) => !!sel && n.id === sel.id;
 
   // anclas MÁS separadas (0.32/0.34 vs 0.24/0.26 del diseño): el cielo respira
   function anchorsFor(w, h) {
@@ -107,6 +122,77 @@
     }
   }
 
+  // ── revelado adaptativo por zoom (§11.54): más estrellas al acercar, "tipo mapa" ──
+  // Nodo PROFUNDO: del pool ligero, sin obras (se cargan al tocar), sin repulsión, dot pequeño.
+  function spawnDeep(cr) {
+    const nd = spawn(cr, CORE + 1); // rank > CORE → core=false
+    nd.deep = true;
+    nd.born = Date.now(); // fade-in
+    nd.obras = null; // on-demand
+    return nd;
+  }
+  // zoom → nº de estrellas deseadas: z≤1.25 solo el núcleo; sube (ease-in) hasta el pool a z≈3
+  function revealTarget() {
+    const poolMax = poolLoaded ? Math.min(deepPool.length, RENDER_CAP) : LIMIT;
+    const t = Math.max(0, Math.min(1, (view.z - 1.25) / (3.0 - 1.25)));
+    return Math.round(LIMIT + (poolMax - LIMIT) * (t * t));
+  }
+  async function ensurePool() {
+    if (poolLoaded || poolLoading) return;
+    poolLoading = true;
+    try {
+      const d = await constelacionLight(); // ordenado por nº de obras desc
+      deepPool = d.creadores || [];
+      poolLoaded = true;
+    } catch {
+      /* se reintenta al próximo zoom */
+    } finally {
+      poolLoading = false;
+    }
+  }
+  // converge el nº de estrellas hacia el objetivo del zoom (unas pocas por frame = fade suave)
+  function adjustReveal() {
+    if (view.z > 1.3) ensurePool();
+    const want = revealTarget();
+    if (want > nodes.length && poolLoaded) {
+      const present = new Set(nodes.map((n) => n.id));
+      let added = 0;
+      for (let i = 0; i < deepPool.length && nodes.length < want && added < SPAWN_PER_FRAME; i++) {
+        if (present.has(deepPool[i].id)) continue;
+        nodes.push(spawnDeep(deepPool[i]));
+        present.add(deepPool[i].id);
+        added++;
+      }
+    } else if (nodes.length > want + 8) {
+      // alejar: retira estrellas PROFUNDAS de la cola (nunca núcleo/seleccionada/arrastrada).
+      // +8 de histéresis: evita el vaivén por el jitter de coma flotante del zoom.
+      let removed = 0;
+      for (let i = nodes.length - 1; i >= 0 && removed < DESPAWN_PER_FRAME && nodes.length > want; i--) {
+        const n = nodes[i];
+        if (n.deep && n !== selected && !(nodeDrag && nodeDrag.node === n)) {
+          nodes.splice(i, 1);
+          removed++;
+        }
+      }
+    }
+    if (visibles !== nodes.length) visibles = nodes.length;
+  }
+  // obras de un nodo profundo, al tocarlo (reusa la búsqueda por nombre → casa por id)
+  async function fetchObras(n) {
+    try {
+      const d = await constelacion({ buscar: n.nombre });
+      const rich = (d?.creadores || []).find((c) => c.id === n.id);
+      n.obras = rich?.obras || [];
+      n.nota = rich?.nota ?? null;
+      if (selected && selected.id === n.id) {
+        selObras = n.obras;
+        selNota = n.nota;
+      }
+    } catch {
+      /* deja el panel con lo que hay */
+    }
+  }
+
   // ── abre/cierra: fetch + history (back cierra) + rAF ──
   let pushed = false;
   $effect(() => {
@@ -116,8 +202,13 @@
     anchors = anchorsFor(W, H);
     view = { x: 0, y: 0, z: 1 };
     selected = null;
+    selObras = [];
+    selNota = null;
     catFilter = 'all';
     searchQ = '';
+    deepPool = []; // el pool se re-pide al acercar (refleja datos frescos)
+    poolLoaded = false;
+    poolLoading = false;
     load(null);
     try {
       // #constelacion = deep-link de la sección (§11.51); back la cierra (popstate abajo)
@@ -195,6 +286,7 @@
     raf = null;
     if (!$constelOpen || !canvasEl) return;
     const t = Date.now() / 1000;
+    adjustReveal(); // revelado adaptativo por zoom (§11.54) — también en reduced-motion
     if (!reduced) {
       for (const a of nodes) {
         if (nodeDrag && nodeDrag.moved && nodeDrag.node === a) {
@@ -209,14 +301,16 @@
         a.vx += Math.cos(t * 0.5 + a.seed) * 0.015;
         a.vy += Math.sin(t * 0.4 + a.seed) * 0.015;
       }
-      // repulsión entre TODOS (fuerza ∝ radio + margen 26, 0.09): el cielo no se apelmaza
-      for (let i = 0; i < nodes.length; i++)
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i], b = nodes[j];
+      // repulsión SOLO entre el núcleo/etiquetados (acotado ~≤120) → escala a miles de estrellas
+      // profundas (que solo llevan gravedad+deriva). El cielo no se apelmaza y los nombres top se
+      // leen sin solaparse. (fuerza ∝ radio + margen 26; pares etiquetados r>16 se separan más)
+      const rep = [];
+      for (const n of nodes) if (n.core || n.r > 16) rep.push(n);
+      for (let i = 0; i < rep.length; i++)
+        for (let j = i + 1; j < rep.length; j++) {
+          const a = rep[i], b = rep[j];
           const dx = a.x - b.x, dy = a.y - b.y;
           const d2 = dx * dx + dy * dy;
-          // los pares con ETIQUETA (r>16, nombre siempre visible) se separan más: los nombres
-          // de los top deben leerse sin solaparse a zoom inicial
           const min = a.r + b.r + (a.r > 16 && b.r > 16 ? 52 : 26);
           if (d2 < min * min && d2 > 0.01) {
             const d = Math.sqrt(d2);
@@ -305,11 +399,16 @@
       }
     }
     // nodos
+    const nowms = Date.now();
     for (const n of nodes) {
       const dim = (catFilter !== 'all' && n.cat !== catFilter) || (sel && n.id !== sel.id);
-      const alpha = dim ? 0.16 : n.core ? 1 : 0.8;
+      const active = isSel(n, sel);
       const isHover = hover && hover.id === n.id;
-      if (!dim && (n.r > 9 || isHover || (sel && n.id === sel.id))) {
+      // fade-in de las estrellas recién reveladas (§11.54)
+      const fade = n.deep && n.born ? Math.min(1, (nowms - n.born) / 450) : 1;
+      const alpha = (dim ? 0.16 : n.core ? 1 : 0.8) * fade;
+      // GLOW solo en núcleo/hover/selección (createRadialGradient es caro → acotado a ~≤120)
+      if (!dim && (n.core || isHover || active)) {
         const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r * 3.2);
         g.addColorStop(0, n.col + '44');
         g.addColorStop(1, n.col + '00');
@@ -323,15 +422,18 @@
       ctx.beginPath();
       ctx.arc(n.x, n.y, n.r * (isHover ? 1.2 : 1), 0, 6.28);
       ctx.fill();
-      ctx.fillStyle = '#F2EBDD';
-      ctx.globalAlpha = alpha * 0.5;
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, Math.max(1, n.r * 0.3), 0, 6.28);
-      ctx.fill();
+      // sub-punto brillante: solo en núcleo/hover (evita 2ª arc por cada estrella profunda)
+      if (!n.deep || isHover || active) {
+        ctx.fillStyle = '#F2EBDD';
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, Math.max(1, n.r * 0.3), 0, 6.28);
+        ctx.fill();
+      }
       ctx.globalAlpha = 1;
-      // LOD del nombre (r>16 = top de verdad) con ESQUIVA de colisiones: abajo → arriba → no se
-      // dibuja (los grandes ganan: nodes va en n desc). Cero solapes por construcción.
-      if (!dim && n.nombre && (n.r > 16 || isHover || (sel && n.id === sel.id) || view.z > 1.6)) {
+      // LOD del nombre: top real (r>16) siempre; el resto solo al acercar y si no es minúsculo
+      // (r>11 ≈ ≥4 obras) → las miles de estrellas de 1-3 obras NO piden measureText por frame.
+      if (!dim && n.nombre && (n.r > 16 || isHover || active || (view.z > 1.9 && n.r > 11))) {
         const fs = 12 + n.r * 0.14;
         ctx.font = `${sel && n.id === sel.id ? 600 : 500} ${fs}px Newsreader, Georgia, serif`;
         const w = ctx.measureText(n.nombre).width;
@@ -382,6 +484,9 @@
   }
   function select(n) {
     selected = n;
+    selObras = n.obras ?? [];
+    selNota = n.nota ?? null;
+    if (!n.obras) fetchObras(n); // nodo profundo: sus obras se piden al tocarlo
   }
   function centerOn(n, z = Math.max(view.z, 1.7)) {
     view.z = z;
@@ -604,6 +709,21 @@
         return n ? { x: n.x, y: n.y, hx: n.hx, hy: n.hy, r: n.r } : null;
       },
       viewState: () => ({ x: view.x, y: view.y, z: view.z }),
+      // revelado adaptativo (§11.54): fija el zoom y consulta el objetivo/estado del pool
+      zoom: (z) => (view.z = Math.max(0.5, Math.min(3.5, z))),
+      reveal: () => ({ n: nodes.length, want: revealTarget(), pool: deepPool.length, poolLoaded, cap: RENDER_CAP }),
+      // una estrella PROFUNDA visible en pantalla (para el E2E de tap on-demand)
+      deepOnscreen: () => {
+        const rect = canvasEl.getBoundingClientRect();
+        for (const n of nodes) {
+          if (!n.deep) continue;
+          const px = (n.x - W / 2 + view.x) * view.z + W / 2;
+          const py = (n.y - H / 2 + view.y) * view.z + H / 2;
+          const sx = rect.left + px * (rect.width / W), sy = rect.top + py * (rect.height / H);
+          if (sx > 50 && sx < rect.right - 50 && sy > 140 && sy < rect.bottom - 200) return { nombre: n.nombre, x: sx, y: sy };
+        }
+        return null;
+      },
       // densidad: stats REALES del último draw (la esquiva garantiza 0 solapes dibujados)
       labelOverlaps: () => lastLabelStats
     };
@@ -667,7 +787,7 @@
           </div>
           <div class="pstats">
             <div><span class="big gold">{selected.n}</span><span class="lbl dim">OBRAS</span></div>
-            <div><span class="big">{fmtNota(selected.nota)}</span><span class="lbl dim">MEDIA</span></div>
+            <div><span class="big">{fmtNota(selNota)}</span><span class="lbl dim">MEDIA</span></div>
             <button class="pclose" aria-label="Cerrar panel" onclick={() => (selected = null)}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
             </button>
@@ -675,7 +795,8 @@
         </div>
         <div class="lbl gold works-l">SUS OBRAS EN TU ARCHIVO</div>
         <div class="works">
-          {#each (selected.obras || []).slice(0, 24) as o (o.id)}
+          {#if selected.obras == null && !selObras.length}<div class="wloading lbl dim">Cargando sus obras…</div>{/if}
+          {#each selObras.slice(0, 24) as o (o.id)}
             <button class="work" onclick={() => openObraDetail(o.id)} title={o.titulo}>
               {#if o.img}
                 <img src={o.img} alt="" loading="lazy" style="border-color:{selected.col}55" />

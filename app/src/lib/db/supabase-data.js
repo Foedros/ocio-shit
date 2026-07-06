@@ -268,6 +268,14 @@ export async function constelacion({ limit = 120, buscar = null } = {}) {
   return data;
 }
 
+// Pool LIGERO (§11.54): todos los creadores sin obras, para el revelado adaptativo por zoom.
+// { total, creadores: [{id, nombre, n, cat}] } — las obras de un nodo se piden al tocarlo.
+export async function constelacionLight() {
+  const { data, error } = await supabase.rpc('ocio_constelacion_light');
+  fail(error, 'constelacionLight');
+  return data;
+}
+
 // Timeline (pantalla 04): macro = volumen+mezcla por AÑO DE ENTRADA (rápido, una RPC); el detalle
 // de un año (sus entradas, para agrupar por mes + clúster de votos) se pide al seleccionarlo.
 export async function timelineMacro() {

@@ -632,6 +632,35 @@ begin
 end;
 $$;
 
+-- ── CONSTELACIÓN · pool LIGERO para el revelado adaptativo por zoom (§11.54) ────────────────
+-- TODOS los creadores como filas mínimas {id, nombre, n, cat} SIN obras — el cielo revela más
+-- estrellas al acercar el zoom (LOD tipo mapa). Ligero (~3k filas, sin arrays de obras); las
+-- obras de un nodo profundo se piden on-demand al tocarlo (reusa ocio_constelacion con p_buscar).
+create or replace function ocio_constelacion_light()
+  returns jsonb language sql security invoker stable set search_path = public
+as $$
+  with base as (
+    select oc.persona_id, count(distinct oc.obra_id)::int as n
+    from obra_creador oc
+    group by 1),
+  cat as (
+    select persona_id, categoria from (
+      select oc.persona_id, o.categoria,
+             row_number() over (partition by oc.persona_id order by count(*) desc, o.categoria) as rn
+      from obra_creador oc join obra o on o.id = oc.obra_id
+      group by oc.persona_id, o.categoria) x
+    where rn = 1)
+  select jsonb_build_object(
+    'total', (select count(*) from base),
+    'creadores', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', b.persona_id, 'nombre', p.nombre, 'n', b.n, 'cat', c.categoria)
+             order by b.n desc, p.nombre)
+      from base b
+      join persona p on p.id = b.persona_id
+      left join cat c on c.persona_id = b.persona_id), '[]'::jsonb));
+$$;
+
 -- ── HOME / DASHBOARD (01): el aterrizaje, en UNA RPC ────────────────────────────────────────
 -- Síntesis + puertas. REUTILIZA las RPCs existentes (no recalcula): llama por dentro a
 -- ocio_progresion()/ocio_hall()/ocio_stats() y extrae SOLO los slivers (nivel/clase, cumbre,
@@ -935,6 +964,7 @@ revoke all on function ocio_set_canon(text, boolean, text, text) from public, an
 revoke all on function ocio_set_en_curso(text, boolean) from public, anon;
 revoke all on function ocio_set_imagen(text, text)  from public, anon;
 revoke all on function ocio_constelacion(integer, text) from public, anon;
+revoke all on function ocio_constelacion_light()    from public, anon;
 revoke all on function ocio_timeline_macro()        from public, anon;
 revoke all on function ocio_timeline_year(integer)  from public, anon;
 grant  execute on function ocio_add_entry(jsonb)    to authenticated;
@@ -955,5 +985,6 @@ grant  execute on function ocio_set_canon(text, boolean, text, text) to authenti
 grant  execute on function ocio_set_en_curso(text, boolean) to authenticated;
 grant  execute on function ocio_set_imagen(text, text) to authenticated;
 grant  execute on function ocio_constelacion(integer, text) to authenticated;
+grant  execute on function ocio_constelacion_light() to authenticated;
 grant  execute on function ocio_timeline_macro()    to authenticated;
 grant  execute on function ocio_timeline_year(integer) to authenticated;
