@@ -409,6 +409,10 @@
 <style>
   .gwrap {
     position: relative;
+    /* contexto de apilamiento PROPIO: los z-index internos (covers 100, caption/foot 105,
+       flechas 110) no compiten con los overlays globales — sin esto el caption pintaba
+       ENCIMA del sheet de detalle (z-60), el drawer (55) y los toasts (80) */
+    isolation: isolate;
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: radial-gradient(120% 80% at 50% 12%, #16120d 0%, var(--bg) 60%);
