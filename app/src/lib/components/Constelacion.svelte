@@ -120,7 +120,8 @@
     searchQ = '';
     load(null);
     try {
-      history.pushState({ constel: 1 }, '');
+      // #constelacion = deep-link de la sección (§11.51); back la cierra (popstate abajo)
+      history.pushState({ constel: 1 }, '', '#constelacion');
       pushed = true;
     } catch {
       pushed = false;
@@ -132,7 +133,7 @@
       if (get(detail)) {
         closeDetail();
         try {
-          history.pushState({ constel: 1 }, '');
+          history.pushState({ constel: 1 }, '', '#constelacion');
         } catch {
           /* ignore */
         }

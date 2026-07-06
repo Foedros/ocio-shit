@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { boot, signOutAction, exportAction, setDisplayNameAction, refreshArchive, refreshColecciones, __installTestHooks } from '$lib/boot-supabase.js';
-  import { auth, dbStatus, displayName, busy } from '$lib/stores.js';
+  import { auth, dbStatus, displayName, busy, constelOpen } from '$lib/stores.js';
   import ArchiveList from '$lib/components/ArchiveList.svelte';
   import DetailPanel from '$lib/components/DetailPanel.svelte';
   import ColeccionesPanel from '$lib/components/ColeccionesPanel.svelte';
@@ -20,7 +20,7 @@
   import Button from '$lib/components/Button.svelte';
   import Toast from '$lib/components/Toast.svelte';
 
-  let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | wrapped | perfil | hall | cuenta
+  let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | constelacion | wrapped | perfil | hall | cuenta
   let showAdd = $state(false);
 
   // Cierre accidental del registro (✕ / tap fuera / Escape) CON datos escritos → confirmación
@@ -55,7 +55,7 @@
 
   const TITLES = {
     home: 'Inicio', diario: 'Diario', colecciones: 'Colecciones', estadisticas: 'Estadísticas',
-    timeline: 'Timeline', wrapped: 'Wrapped', perfil: 'Perfil', cuenta: 'Cuenta'
+    timeline: 'Timeline', constelacion: 'Constelación', wrapped: 'Wrapped', perfil: 'Perfil', cuenta: 'Cuenta'
   };
   let title = $derived(
     view === 'hall' ? (hallMode === 'shame' ? 'Hall of Shame' : 'Hall of Fame') : (TITLES[view] ?? 'Ocio Shit')
@@ -64,9 +64,32 @@
 
   function navTo(v, opts) {
     if (v === 'hall') hallMode = opts?.hallMode ?? 'fame';
+    if (v === 'constelacion' && view !== 'constelacion') prevView = view;
     view = v;
     drawerOpen = false;
   }
+
+  // ── CONSTELACIÓN como SECCIÓN (§11.51): view='constelacion' monta el cielo (el componente
+  // sigue siendo pantalla completa fija FUERA de .page, §11.43 — esa presentación ES la
+  // sección). X/back devuelven a la sección ANTERIOR (o Inicio); deep-link = #constelacion. ──
+  let prevView = 'home';
+  $effect(() => {
+    constelOpen.set(view === 'constelacion');
+  });
+  // el componente cierra por X/back (popstate) → volvemos a la sección anterior y limpiamos
+  // el hash residual del deep-link (replaceState: sin ensuciar la pila)
+  $effect(() => {
+    if (!$constelOpen && view === 'constelacion') {
+      view = prevView ?? 'home';
+      if (typeof location !== 'undefined' && location.hash === '#constelacion') {
+        try {
+          history.replaceState(null, '', location.pathname + location.search);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  });
 
   // SCROLL-LOCK: con el formulario a pantalla completa o el drawer abiertos en móvil, el fondo NO se
   // mueve (era la queja principal). Solo móvil → el escritorio no cambia su comportamiento.
@@ -96,6 +119,18 @@
   onMount(() => {
     __installTestHooks();
     boot();
+    // deep-link a la Constelación (#constelacion): entra directo; back/X → Inicio.
+    // Se limpia el hash de ESTA entrada de history (el componente empuja la suya propia
+    // con #constelacion) — si no, el back() de la X aterrizaría en una entrada con hash.
+    if (location.hash === '#constelacion') {
+      prevView = 'home';
+      view = 'constelacion';
+      try {
+        history.replaceState(null, '', location.pathname + location.search);
+      } catch {
+        /* ignore */
+      }
+    }
     const mq = window.matchMedia('(max-width: 700px)');
     const upd = () => (mobile = mq.matches);
     upd();
@@ -129,6 +164,7 @@
   <button class:active={view === 'colecciones'} onclick={() => (view = 'colecciones')}>Colecciones</button>
   <button class:active={view === 'estadisticas'} onclick={() => (view = 'estadisticas')}>Estadísticas</button>
   <button class:active={view === 'timeline'} onclick={() => (view = 'timeline')}>Timeline</button>
+  <button class:active={view === 'constelacion'} onclick={() => navTo('constelacion')}>Constelación</button>
   <button class:active={view === 'wrapped'} onclick={() => (view = 'wrapped')}>Wrapped</button>
   <button class:active={view === 'perfil'} onclick={() => (view = 'perfil')}>Perfil</button>
   <button class:active={view === 'hall'} onclick={() => (view = 'hall')}>Hall of Fame</button>
@@ -140,7 +176,7 @@
 <div class="page" class:pushed={drawerOpen}>
 {#key refreshTick}
 {#if view === 'home'}
-  <HomePanel onnavigate={(v) => (view = v)} onregister={() => (showAdd = true)} />
+  <HomePanel onnavigate={(v) => navTo(v)} onregister={() => (showAdd = true)} />
 {:else if view === 'diario'}
   {#if isEmpty && canWrite}
     <div class="hero-empty">
@@ -161,7 +197,7 @@
 {:else if view === 'wrapped'}
   <WrappedPanel />
 {:else if view === 'perfil'}
-  <PerfilPanel />
+  <PerfilPanel onconstelacion={() => navTo('constelacion')} />
 {:else if view === 'hall'}
   <HallPanel initialMode={hallMode} />
 {:else}
@@ -201,7 +237,8 @@
   </button>
 {/if}
 
-<!-- Constelación (Tanda 8): pantalla completa FUERA de .page (§11.43); bajo los sheets (z-50<60) -->
+<!-- Constelación — SECCIÓN propia (§11.51) con presentación a pantalla completa, FUERA de
+     .page (§11.43); bajo los sheets (z-50<60). view='constelacion' la monta (sync arriba). -->
 <Constelacion />
 
 <!-- MÓVIL: drawer lateral con las 9 secciones + "Cuenta y datos". Escritorio: oculto (CSS). -->
@@ -224,6 +261,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18" /><path d="M7 14l3-4 3 2 4-6" /></svg>Estadísticas</button>
     <button class="navrow" class:on={view === 'timeline'} onclick={() => navTo('timeline')}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /></svg>Timeline</button>
+    <button class="navrow" class:on={view === 'constelacion'} onclick={() => navTo('constelacion')}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="17" r="1.6" /><circle cx="12" cy="6" r="1.6" /><circle cx="19" cy="13" r="1.6" /><path d="M7.2 15.8L10.9 7.4M13.5 6.9l4.2 5M17.5 13.9l-9.9 2.7" /></svg>Constelación</button>
     <button class="navrow" class:on={view === 'hall' && hallMode === 'fame'} onclick={() => navTo('hall', { hallMode: 'fame' })}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.1 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.3 12 2" /></svg>Hall of Fame</button>
     <button class="navrow" class:on={view === 'hall' && hallMode === 'shame'} onclick={() => navTo('hall', { hallMode: 'shame' })}>

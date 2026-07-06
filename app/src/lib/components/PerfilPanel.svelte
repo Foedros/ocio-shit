@@ -8,8 +8,11 @@
   import { displayName } from '$lib/stores.js';
   import { stats, evaluateLogros, getProfile, setTituloActivo, progresion, syncUnlocks } from '$lib/db/supabase-data.js';
   import { haptic } from '$lib/motion.js';
-  import { constelOpen } from '$lib/stores.js';
   import Skeleton from './Skeleton.svelte';
+
+  // §11.51: la Constelación es SECCIÓN propia — la tarjeta del ADN queda como acceso
+  // secundario y NAVEGA (callback de +page) para que drawer/título reflejen la sección.
+  let { onconstelacion } = $props();
 
   let loading = $state(true);
   let error = $state(null);
@@ -311,9 +314,9 @@
           <div class="t-body"><div class="t-title">{a.t}</div><div class="t-desc">{a.d}</div></div>
         </div>
       {/each}
-      <!-- La pieza mayor (Tanda 8): el ADN como cielo navegable — abre el overlay a pantalla
-           completa (montado en +page, FUERA del wrapper con parallax, §11.43) -->
-      <button class="trait constel-card" onclick={() => constelOpen.set(true)}>
+      <!-- La pieza mayor (Tanda 8 → sección propia §11.51): acceso SECUNDARIO contextual
+           desde el ADN — navega a la sección Constelación (acceso primario: drawer/pestañas) -->
+      <button class="trait constel-card" onclick={() => onconstelacion?.()}>
         <div class="t-ic constel-ic" aria-hidden="true">
           <span class="star s1"></span><span class="star s2"></span><span class="star s3"></span>
           <span class="star s4"></span><span class="star s5"></span>
