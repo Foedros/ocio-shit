@@ -27,6 +27,17 @@
   let broken = $state(new Set());
   const markBroken = (url) => (broken = new Set(broken).add(url));
 
+  // Carátulas HORIZONTALES (headers de Steam 460×215 y similares): tratamiento "ESTUCHE"
+  // (§11.50) — la celda sigue 2:3 pero la imagen va CONTAIN entera (legible) sobre su propio
+  // blur ampliado y oscurecido (patrón del modo cine). Detección por ratio REAL al cargar
+  // (naturalWidth>naturalHeight — cubre también akamai hasheado/IMDb, no solo steamstatic);
+  // Set por URL: la ventana virtualizada re-monta celdas y así nacen ya en modo estuche.
+  let wide = $state(new Set());
+  const checkWide = (e, url) => {
+    const im = e.currentTarget;
+    if (im.naturalWidth > im.naturalHeight && !wide.has(url)) wide = new Set(wide).add(url);
+  };
+
   $effect(() => {
     if (!viewport) return;
     const ro = new ResizeObserver(() => {
@@ -104,8 +115,9 @@
       suppressClick = false;
       return;
     }
-    // Tanda 3: la carátula tocada es el ORIGEN del vuelo hacia el detalle (fallback null = sin vuelo)
-    openEntryDetail(it.entrada_id, { fromEl: ev?.currentTarget?.querySelector('img') ?? null });
+    // Tanda 3: la carátula tocada es el ORIGEN del vuelo hacia el detalle (fallback null = sin
+    // vuelo). :not(.bg): en modo estuche el primer img es el RELLENO borroso — vuela la nítida.
+    openEntryDetail(it.entrada_id, { fromEl: ev?.currentTarget?.querySelector('img:not(.bg)') ?? null });
   }
   function onScroll(e) {
     scrollTop = e.currentTarget.scrollTop;
@@ -134,7 +146,19 @@
           title={it.titulo}
         >
           {#if it.imagen_url && !broken.has(it.imagen_url)}
-            <img src={it.imagen_url} alt="" loading="lazy" draggable="false" onerror={() => markBroken(it.imagen_url)} />
+            {#if wide.has(it.imagen_url)}
+              <!-- relleno estuche: la MISMA imagen (mismo fetch, ya decodificada) ampliada+blur -->
+              <img class="bg" src={it.imagen_url} alt="" aria-hidden="true" loading="lazy" draggable="false" />
+            {/if}
+            <img
+              class:fit={wide.has(it.imagen_url)}
+              src={it.imagen_url}
+              alt=""
+              loading="lazy"
+              draggable="false"
+              onload={(e) => checkWide(e, it.imagen_url)}
+              onerror={() => markBroken(it.imagen_url)}
+            />
           {:else}
             <span class="fb">
               <span class="fb-t">{it.titulo}</span>
@@ -194,6 +218,17 @@
     height: 100%;
     object-fit: cover;
     display: block;
+  }
+  /* ESTUCHE (imagen horizontal): el header entero, centrado, sobre su propio blur */
+  .cell img.fit {
+    object-fit: contain;
+  }
+  .cell img.bg {
+    object-fit: cover;
+    filter: blur(14px) brightness(0.55) saturate(1.05);
+    /* scale tapa el sangrado transparente del blur en los bordes; translateZ = capa
+       compositada rasterizada UNA vez (el scroll no repinta — patrón del modo cine) */
+    transform: scale(1.4) translateZ(0);
   }
   /* Fallback tipográfico (imagen_url NULL o rota): color de categoría + título */
   .fb {

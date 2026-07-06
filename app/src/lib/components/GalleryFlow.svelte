@@ -56,10 +56,19 @@
   const grp = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
   // Altura fija, ancho variable: header de Steam (460×215) → ancho; póster (TMDB/OpenLibrary) → 2:3.
-  const isWide = (it) => (it.imagen_url || '').includes('steamstatic');
+  const isWide = (it) => /steamstatic|store_item_assets/.test(it.imagen_url || '');
   const wOf = (it) => Math.round(isWide(it) ? H * 1.3 : H * 0.667);
   const hasImg = (it) => !!it.imagen_url && !broken.has(it.imagen_url);
   const markBroken = (url) => (broken = new Set(broken).add(url));
+
+  // Carátulas HORIZONTALES → "ESTUCHE" (§11.50): contain entera sobre su propio blur oscurecido
+  // (patrón del modo cine), dentro de la misma caja. Ratio REAL (naturalWidth>naturalHeight) al
+  // cargar, Set por URL — la ventana perezosa re-monta covers y nacen ya en modo estuche.
+  let wide = $state(new Set());
+  const checkWide = (e, url) => {
+    const im = e.currentTarget;
+    if (im.naturalWidth > im.naturalHeight && !wide.has(url)) wide = new Set(wide).add(url);
+  };
 
   // Ventana perezosa: ±WINDOW+1 covers montados (el +1 cubre el borde durante el glide fraccional).
   let win = $derived.by(() => {
@@ -100,7 +109,8 @@
   // Tanda 3: la carátula CENTRAL tocada es el origen del vuelo al detalle (laterales solo centran)
   const onCoverClick = (off, it, el) =>
     off === 0
-      ? openEntryDetail(it.entrada_id, { fromEl: el?.querySelector('.cover-inner img') ?? null })
+      ? // :not(.bg): en modo estuche el primer img es el relleno borroso — vuela la nítida
+        openEntryDetail(it.entrada_id, { fromEl: el?.querySelector('.cover-inner img:not(.bg)') ?? null })
       : move(off);
 
   // ── MOTOR DE GLIDE (rAF) — movimiento continuo para inercia y crucero sostenido ──────────────
@@ -351,7 +361,18 @@
                el gesto convive con el swipe: dedo quieto ~150ms activa, desplazarse cancela -->
           <div class="cover-inner" style="width:{wOf(it)}px;height:{H}px" use:tilt={{ enabled: off === 0 && !gliding }}>
             {#if hasImg(it)}
-              <img src={it.imagen_url} alt={it.titulo} loading="lazy" draggable="false" onerror={() => markBroken(it.imagen_url)} />
+              {#if wide.has(it.imagen_url)}
+                <img class="bg" src={it.imagen_url} alt="" aria-hidden="true" loading="lazy" draggable="false" />
+              {/if}
+              <img
+                class:fit={wide.has(it.imagen_url)}
+                src={it.imagen_url}
+                alt={it.titulo}
+                loading="lazy"
+                draggable="false"
+                onload={(e) => checkWide(e, it.imagen_url)}
+                onerror={() => markBroken(it.imagen_url)}
+              />
               <span class="sheen"></span>
             {:else}
               <div class="fallback" style="background:{col(it.categoria).c}; padding:{Math.round(H * 0.12)}px">
@@ -363,7 +384,10 @@
           <div class="reflection" style="width:{wOf(it)}px;height:{Math.round(H * 0.6)}px" aria-hidden="true">
             <div class="cover-inner noframe" style="width:{wOf(it)}px;height:{H}px">
               {#if hasImg(it)}
-                <img src={it.imagen_url} alt="" loading="lazy" draggable="false" />
+                {#if wide.has(it.imagen_url)}
+                  <img class="bg" src={it.imagen_url} alt="" aria-hidden="true" loading="lazy" draggable="false" />
+                {/if}
+                <img class:fit={wide.has(it.imagen_url)} src={it.imagen_url} alt="" loading="lazy" draggable="false" />
               {:else}
                 <div class="fallback" style="background:{col(it.categoria).c}; padding:{Math.round(H * 0.12)}px">
                   <div class="ftitle" style="font-size:{Math.round(H * 0.11)}px">{it.titulo}</div>
@@ -460,6 +484,18 @@
     height: 100%;
     object-fit: cover;
     display: block;
+  }
+  /* ESTUCHE (imagen horizontal): header entero sobre su propio blur — misma caja del carrusel */
+  .cover-inner img.fit {
+    object-fit: contain;
+    position: relative; /* sobre el .bg absoluto */
+  }
+  .cover-inner img.bg {
+    position: absolute;
+    inset: 0;
+    object-fit: cover;
+    filter: blur(16px) brightness(0.55) saturate(1.05);
+    transform: scale(1.4) translateZ(0); /* tapa bordes del blur; capa compositada, sin repaints */
   }
   .sheen {
     position: absolute;
