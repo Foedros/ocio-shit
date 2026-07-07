@@ -47,6 +47,14 @@ export async function setDisplayName(name) {
   if (error) throw new Error(error.message);
   return data.user;
 }
+// Preferencias de transiciones de pestaña (Cuenta): user_metadata.tab_tx =
+// { cine|literatura|videojuego: bool } (clave ausente = activa). Mismo mecanismo que el nombre
+// de display (updateUser con la publishable sobre la propia sesión). Devuelve el user actualizado.
+export async function setTabTx(tab_tx) {
+  const { data, error } = await supabase.auth.updateUser({ data: { tab_tx } });
+  if (error) throw new Error(error.message);
+  return data.user;
+}
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 function fail(error, ctx) {

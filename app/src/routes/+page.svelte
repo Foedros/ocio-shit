@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { boot, signOutAction, exportAction, setDisplayNameAction, refreshArchive, refreshColecciones, __installTestHooks } from '$lib/boot-supabase.js';
+  import { boot, signOutAction, exportAction, setDisplayNameAction, setTabTxAction, refreshArchive, refreshColecciones, __installTestHooks } from '$lib/boot-supabase.js';
   import { auth, dbStatus, displayName, busy, constelOpen } from '$lib/stores.js';
   import ArchiveList from '$lib/components/ArchiveList.svelte';
   import DetailPanel from '$lib/components/DetailPanel.svelte';
@@ -15,7 +15,7 @@
   import Splash from '$lib/components/Splash.svelte';
   import PullToRefresh from '$lib/components/PullToRefresh.svelte';
   import Constelacion from '$lib/components/Constelacion.svelte';
-  import { tabTransition } from '$lib/tab-transitions.js';
+  import { tabTransition, tabTxInterrupt } from '$lib/tab-transitions.js';
   import Login from '$lib/components/Login.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -69,15 +69,17 @@
     const from = view;
     drawerOpen = false;
     if (v === from) return;
-    // TRANSICIONES DE PESTAÑA (§11.59): cada cambio de sección sortea una de las 4 formas
-    // (cine/literatura/cómic/videojuego; reduced-motion = fundido). La Constelación queda
-    // FUERA en ambos sentidos: es un overlay fijo con su propia presentación e history, y
-    // detrás de su cielo el .page renderiza otra cosa (el sorteo la revelaría a medias).
+    // TRANSICIONES DE PESTAÑA (§11.59-11.61): cada cambio de sección sortea una de las formas
+    // ACTIVAS en las preferencias (cine/literatura/videojuego; 0 activas o reduced-motion =
+    // fundido). La Constelación queda FUERA en ambos sentidos: es un overlay fijo con su propia
+    // presentación e history, y detrás de su cielo el .page renderiza otra cosa (el sorteo la
+    // revelaría a medias).
     if (v === 'constelacion' || from === 'constelacion') {
+      tabTxInterrupt(); // que ningún swap diferido (cine) revierta esta navegación
       view = v;
       return;
     }
-    tabTransition(() => (view = v), { to: v });
+    tabTransition(() => (view = v), { to: v, prefs: txPrefs });
   }
 
   // ── CONSTELACIÓN como SECCIÓN (§11.51): view='constelacion' monta el cielo (el componente
@@ -122,6 +124,32 @@
     }
   });
   const saveName = () => setDisplayNameAction(nameDraft);
+
+  // Transiciones de pestaña (Cuenta, §11.61): qué formas entran en el sorteo. La VERDAD vive en
+  // user_metadata.tab_tx del auth store (lo actualizan los guardados, USER_UPDATED y el token
+  // refresh — clave en multi-dispositivo); txLocal es la capa OPTIMISTA de los clics aún sin
+  // confirmar. UI y sorteo leen la MISMA mezcla (txPrefs — navTo se la pasa a tabTransition), y
+  // el snapshot que se persiste se construye desde el metadata VIVO en el momento del clic —
+  // nunca desde una semilla vieja que pisaría cambios hechos en otro dispositivo/pestaña.
+  const TX_OPTS = [['cine', 'Cine'], ['literatura', 'Literatura'], ['videojuego', 'Videojuego']];
+  let txLocal = $state(null);
+  let txPrefs = $derived({ ...($auth.user?.user_metadata?.tab_tx ?? {}), ...(txLocal ?? {}) });
+  // los guardados van EN CADENA: varios clics rápidos no lanzan updateUser concurrentes
+  // (llegarían desordenados y podría ganar un estado viejo); cada uno persiste su snapshot.
+  let txSaving = Promise.resolve();
+  let txPending = 0;
+  function toggleTx(k) {
+    txLocal = { ...(txLocal ?? {}), [k]: !(txPrefs[k] !== false) };
+    const snapshot = { ...($auth.user?.user_metadata?.tab_tx ?? {}), ...txLocal };
+    txPending++;
+    txSaving = txSaving
+      .then(() => setTabTxAction(snapshot))
+      .finally(() => {
+        // al vaciarse la cadena el auth store ya es la verdad (o el guardado falló, con toast)
+        // → se retira la capa optimista y la UI CONVERGE al estado persistido real
+        if (--txPending === 0) txLocal = null;
+      });
+  }
 
   let canWrite = $derived(!!$auth.session); // every authenticated tab can write (Postgres arbitra)
   let isEmpty = $derived(($dbStatus?.counts?.entrada ?? 0) === 0);
@@ -252,6 +280,21 @@
         <Button variant="secondary" onclick={saveName} disabled={!!$busy || (nameDraft.trim() === ($auth.user?.user_metadata?.display_name ?? ''))}>Guardar</Button>
       </div>
       <p class="note small">Así te llama la app — el hero de Inicio y el carnet del Perfil. Ahora luces <strong>{$displayName}</strong>. Si lo dejas vacío, se usa tu email.</p>
+    </div>
+    <div class="tx-prefs">
+      <span class="nm-lbl" id="txlbl">Transiciones de pestaña</span>
+      <div class="tx-row" role="group" aria-labelledby="txlbl">
+        {#each TX_OPTS as [k, lbl] (k)}
+          <button
+            class="tx-toggle"
+            class:on={txPrefs[k] !== false}
+            role="switch"
+            aria-checked={txPrefs[k] !== false}
+            disabled={!$auth.user}
+            onclick={() => toggleTx(k)}>{lbl}</button>
+        {/each}
+      </div>
+      <p class="note small">Al cambiar de sección se sortea una de las activas — Cine (cinemascope), Literatura (pasar página) o Videojuego (píxeles). Con una sola activa, siempre esa; sin ninguna, un fundido simple.</p>
     </div>
     <p class="who">Sesión: <strong>{$auth.user?.email}</strong></p>
     {#if counts}
@@ -385,6 +428,47 @@
     width: 100%;
     max-width: 34em;
     margin: 0.3rem 0 0.6rem;
+  }
+  /* Transiciones de pestaña (§11.61): qué formas entran en el sorteo */
+  .tx-prefs {
+    width: 100%;
+    max-width: 34em;
+    margin: 0.1rem 0 0.6rem;
+  }
+  .tx-prefs .nm-lbl {
+    display: block;
+    font-family: var(--font-data, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--label);
+    margin-bottom: 0.4rem;
+  }
+  .tx-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .tx-toggle {
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--ink-3);
+    border-radius: 999px;
+    padding: 0.4rem 0.95rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .tx-toggle.on {
+    background: #171410;
+    border-color: rgba(242, 166, 90, 0.45);
+    color: var(--gold);
+    font-weight: 600;
+  }
+  .tx-toggle:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .name-edit .nm-lbl {
     display: block;

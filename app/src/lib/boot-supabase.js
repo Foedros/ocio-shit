@@ -114,6 +114,23 @@ export async function setDisplayNameAction(name) {
   }
 }
 
+// Preferencias de transiciones de pestaña (user_metadata.tab_tx). Mismo mecanismo que el nombre:
+// el USER_UPDATED no recarga el archivo; el sorteo (tab-transitions) las lee del auth store.
+// Sin busy: los toggles de Cuenta son instantáneos en UI (estado local) y esto solo persiste.
+export async function setTabTxAction(prefs) {
+  try {
+    const user = await data.setTabTx(prefs);
+    auth.update((a) => ({ ...a, user }));
+    const on = ['cine', 'literatura', 'videojuego'].filter((k) => prefs?.[k] !== false);
+    logEvent('ok', `Transiciones de pestaña: ${on.join(' · ') || 'ninguna (fundido)'}.`);
+    return true;
+  } catch (err) {
+    logEvent('error', `No se pudo guardar la preferencia de transiciones: ${err.message}`);
+    showToast('No se pudo guardar', 'error');
+    return false;
+  }
+}
+
 // ── Export portable (anti-lock-in): descarga el export.json completo desde Supabase ──────────
 export async function exportAction() {
   busy.set('Exportando el archivo…');
@@ -477,6 +494,7 @@ export function __installTestHooks() {
     signIn: (e, p) => signInAction(e, p),
     signOut: () => signOutAction(),
     setDisplayName: (n) => setDisplayNameAction(n),
+    setTabTx: (p) => setTabTxAction(p),
     status: () => data.status(),
     listEntries: (f) => data.listEntries(f || {}),
     addEntry: (p) => addEntryAction(p),
