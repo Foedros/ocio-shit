@@ -330,7 +330,6 @@
   .vol-num .big { font-family: var(--font-display); font-size: 80px; color: var(--ink); font-weight: 500; line-height: 0.9; animation: popIn 0.7s both; }
   .vol-num .u { font-size: 16px; color: var(--ink-2); padding-bottom: 12px; }
   .vol-num + .serif-it { margin-top: 2px; }
-  .story-in.vol { justify-content: center; }
   .vol-list { width: 100%; margin-top: 26px; display: flex; flex-direction: column; gap: 12px; }
   .vrow .vtop { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink); margin-bottom: 5px; align-items: center; }
   .vrow .vtop .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
