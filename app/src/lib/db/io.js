@@ -65,14 +65,6 @@ export function applySchema(adapter, schemaSql) {
   adapter.exec(schemaSql);
 }
 
-/** True once the core schema exists (used to decide "OPFS empty -> reconstruct"). */
-export function isInitialized(adapter) {
-  const rows = adapter.all(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='obra'"
-  );
-  return rows.length > 0;
-}
-
 // Columns we may INSERT into: everything except GENERATED columns. table_xinfo.hidden:
 // 0 = ordinary (insertable), 1 = hidden, 2 = virtual generated, 3 = stored generated.
 function insertableColumns(adapter, table) {
@@ -131,12 +123,6 @@ export function importAll(adapter, data, { transaction = true } = {}) {
     }
     throw err;
   }
-}
-
-/** Apply schema + import into a fresh, empty DB. */
-export function loadFresh(adapter, schemaSql, data) {
-  applySchema(adapter, schemaSql);
-  importAll(adapter, data);
 }
 
 /** Serialize the whole DB to the canonical export.json shape. */

@@ -70,11 +70,6 @@ export function applyR1(adapter) {
   }
 }
 
-/** R2 — map official genres from an external source. No genre-bearing source in this corpus. */
-export function applyR2() {
-  return { tags: 0, links: 0, rule: 'R2', note: 'sin fuente de géneros externa en el corpus' };
-}
-
 // --- Manual tagging --------------------------------------------------------------------
 const TAXONOMIAS = ['genero', 'tema', 'tono', 'tecnica', 'meta'];
 
@@ -91,10 +86,6 @@ export function createEtiquetaManual(adapter, { nombre, taxonomia = 'meta', colo
 
 export function tagObra(adapter, obraId, etiquetaId) {
   adapter.run('INSERT OR IGNORE INTO obra_etiqueta (obra_id, etiqueta_id) VALUES (?, ?)', [obraId, etiquetaId]);
-  return { ok: true };
-}
-export function untagObra(adapter, obraId, etiquetaId) {
-  adapter.run('DELETE FROM obra_etiqueta WHERE obra_id = ? AND etiqueta_id = ?', [obraId, etiquetaId]);
   return { ok: true };
 }
 
