@@ -72,8 +72,14 @@
   let overlap = $derived(Math.round(-SP * 0.5)); // solape (canto) — DVDs apretados
   let tx = $derived(Math.round(H * 0.22)); // deslizamiento en hover
   let txPull = $derived(Math.round(H * 0.42)); // extracción al clicar
-  const PLANK = 18;
-  let rowH = $derived(H + PLANK + 30); // caja + plancha + respiro de la siguiente balda
+  // FONDO del estante (§11.56): tres capas para que el escorzo 3D apoye DENTRO, no fuera —
+  //   · superficie (z1): madera que RECEDE por detrás de la base de las cajas (les da suelo)
+  //   · cajas (z2): su base se hunde SEAT dentro del estante
+  //   · lip frontal (z3): el canto de la balda va DELANTE y tapa la base → "metidas en la balda"
+  let LIP = $derived(Math.round(H * 0.12)); // alto del canto frontal
+  let DEPTH = $derived(Math.round(H * 0.34)); // cuánto sube la superficie tras la caja
+  let SEAT = $derived(Math.round(H * 0.06)); // cuánto se hunde la base de la caja en el estante
+  let rowH = $derived(LIP - SEAT + H + 22); // base hundida + caja + respiro de la balda de abajo
 
   let rows = $derived(Math.ceil(items.length / cols));
   let total = $derived(Math.max(0, rows * rowH));
@@ -116,7 +122,10 @@
   <div class="spacer" style="height:{total}px">
     {#each slice as { r, items: rowItems } (r)}
       <div class="row" style="transform: translateY({r * rowH}px); height:{rowH}px">
-        <div class="balda" style="--sp:{SP}px; --cw:{CW}px; --h:{H}px; --tx:{tx}px; --txp:{txPull}px; padding:0 {PAD}px">
+        <!-- FONDO del estante (§11.56): superficie que RECEDE tras las cajas (z1), cajas (z2),
+             lip frontal DELANTE que tapa la base (z3) → las cajas apoyan DENTRO, no fuera -->
+        <div class="surface" style="bottom:{LIP}px; height:{DEPTH}px"></div>
+        <div class="balda" style="--sp:{SP}px; --cw:{CW}px; --h:{H}px; --tx:{tx}px; --txp:{txPull}px; bottom:{LIP - SEAT}px; padding:0 {PAD}px">
           {#each rowItems as it, i (it.entrada_id)}
             <button
               class="dvd"
@@ -146,7 +155,7 @@
             </button>
           {/each}
         </div>
-        <div class="plank" style="height:{PLANK}px; background-image: linear-gradient(rgba(11,10,8,.16),rgba(11,10,8,.28)), url({base}/wood.jpg)"></div>
+        <div class="plank" style="height:{LIP}px"></div>
       </div>
     {/each}
   </div>
@@ -180,14 +189,28 @@
     top: 0;
     left: 0;
     right: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
     will-change: transform;
   }
-  /* balda: perspectiva compartida, lomos apretados, apoyados en la plancha */
+  /* superficie del estante (z1): madera que se aleja del usuario → oscura al FONDO (arriba),
+     cálida al FRENTE (abajo, donde apoyan las cajas). Da profundidad: el escorzo apoya dentro. */
+  .surface {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 1;
+    background:
+      linear-gradient(180deg, rgba(8, 7, 5, 0.92) 0%, rgba(8, 7, 5, 0.5) 48%, rgba(28, 20, 11, 0.1) 100%),
+      var(--wood);
+    background-size: auto, 300px auto;
+    background-repeat: repeat, repeat;
+    box-shadow: inset 0 16px 22px -12px rgba(0, 0, 0, 0.8);
+  }
+  /* balda (z2): absoluta, base hundida SEAT en el estante; lomos apretados en escorzo */
   .balda {
-    position: relative;
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 2;
     display: flex;
     align-items: flex-end;
     width: max-content;
@@ -209,15 +232,17 @@
     will-change: transform;
     backface-visibility: hidden;
   }
+  /* sombra de CONTACTO: ancla la caja al suelo del estante (más ancha y profunda que antes,
+     desbordando por el lado del lomo donde el escorzo recede). El lip (z3) tapa su parte baja. */
   .dvd::after {
     content: '';
     position: absolute;
-    left: 6%;
-    right: 6%;
-    bottom: -6px;
-    height: 14px;
+    left: -8%;
+    right: -20%;
+    bottom: -8px;
+    height: 24px;
     border-radius: 50%;
-    background: radial-gradient(ellipse, rgba(0, 0, 0, 0.55), transparent 72%);
+    background: radial-gradient(ellipse, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.26) 55%, transparent 78%);
     pointer-events: none;
   }
   .cover {
@@ -346,12 +371,21 @@
     filter: brightness(1.15);
   }
 
+  /* lip frontal (z3): canto de la balda DELANTE de las cajas → tapa su base (metidas dentro).
+     Madera más cálida que la superficie, luz ámbar arriba (borde de apoyo) + sombra proyectada. */
   .plank {
-    margin-top: -2px;
-    border-radius: 3px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    border-radius: 0 0 3px 3px;
+    background:
+      linear-gradient(rgba(30, 20, 10, 0.05), rgba(11, 10, 8, 0.32)),
+      var(--wood);
     background-size: auto, 420px auto;
     background-repeat: repeat, repeat;
-    box-shadow: 0 16px 30px rgba(0, 0, 0, 0.55), inset 0 2px 0 rgba(242, 166, 90, 0.16), inset 0 -3px 6px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 16px 30px rgba(0, 0, 0, 0.55), inset 0 2px 0 rgba(242, 166, 90, 0.2), inset 0 -3px 6px rgba(0, 0, 0, 0.5);
   }
   .credits {
     position: sticky;
