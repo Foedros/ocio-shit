@@ -15,6 +15,7 @@
   import Splash from '$lib/components/Splash.svelte';
   import PullToRefresh from '$lib/components/PullToRefresh.svelte';
   import Constelacion from '$lib/components/Constelacion.svelte';
+  import { tabTransition } from '$lib/tab-transitions.js';
   import Login from '$lib/components/Login.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -65,8 +66,18 @@
   function navTo(v, opts) {
     if (v === 'hall') hallMode = opts?.hallMode ?? 'fame';
     if (v === 'constelacion' && view !== 'constelacion') prevView = view;
-    view = v;
+    const from = view;
     drawerOpen = false;
+    if (v === from) return;
+    // TRANSICIONES DE PESTAÑA (§11.59): cada cambio de sección sortea una de las 4 formas
+    // (cine/literatura/cómic/videojuego; reduced-motion = fundido). La Constelación queda
+    // FUERA en ambos sentidos: es un overlay fijo con su propia presentación e history, y
+    // detrás de su cielo el .page renderiza otra cosa (el sorteo la revelaría a medias).
+    if (v === 'constelacion' || from === 'constelacion') {
+      view = v;
+      return;
+    }
+    tabTransition(() => (view = v), { to: v });
   }
 
   // ── CONSTELACIÓN como SECCIÓN (§11.51): view='constelacion' monta el cielo (el componente
@@ -190,16 +201,16 @@
 </nav>
 
 <nav class="tabs">
-  <button class:active={view === 'home'} onclick={() => (view = 'home')}>Inicio</button>
-  <button class:active={view === 'diario'} onclick={() => (view = 'diario')}>Diario</button>
-  <button class:active={view === 'colecciones'} onclick={() => (view = 'colecciones')}>Colecciones</button>
-  <button class:active={view === 'estadisticas'} onclick={() => (view = 'estadisticas')}>Estadísticas</button>
-  <button class:active={view === 'timeline'} onclick={() => (view = 'timeline')}>Timeline</button>
+  <button class:active={view === 'home'} onclick={() => navTo('home')}>Inicio</button>
+  <button class:active={view === 'diario'} onclick={() => navTo('diario')}>Diario</button>
+  <button class:active={view === 'colecciones'} onclick={() => navTo('colecciones')}>Colecciones</button>
+  <button class:active={view === 'estadisticas'} onclick={() => navTo('estadisticas')}>Estadísticas</button>
+  <button class:active={view === 'timeline'} onclick={() => navTo('timeline')}>Timeline</button>
   <button class:active={view === 'constelacion'} onclick={() => navTo('constelacion')}>Constelación</button>
-  <button class:active={view === 'wrapped'} onclick={() => (view = 'wrapped')}>Wrapped</button>
-  <button class:active={view === 'perfil'} onclick={() => (view = 'perfil')}>Perfil</button>
-  <button class:active={view === 'hall'} onclick={() => (view = 'hall')}>Hall of Fame</button>
-  <button class:active={view === 'cuenta'} onclick={() => (view = 'cuenta')}>Cuenta</button>
+  <button class:active={view === 'wrapped'} onclick={() => navTo('wrapped')}>Wrapped</button>
+  <button class:active={view === 'perfil'} onclick={() => navTo('perfil')}>Perfil</button>
+  <button class:active={view === 'hall'} onclick={() => navTo('hall')}>Hall of Fame</button>
+  <button class:active={view === 'cuenta'} onclick={() => navTo('cuenta')}>Cuenta</button>
 </nav>
 
 <!-- pushed (Tanda 6): parallax de profundidad al abrir el drawer — SOLO móvil; el wrapper no
