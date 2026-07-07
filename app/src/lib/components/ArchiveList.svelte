@@ -2,7 +2,7 @@
   import VirtualList from './VirtualList.svelte';
   import GalleryFlow from './GalleryFlow.svelte';
   import ShelfGrid from './ShelfGrid.svelte';
-  import { archiveEntries, archiveFilters, archiveView, filterOpts } from '$lib/stores.js';
+  import { archiveEntries, archiveFilters, archiveView, filterOpts, dbStatus } from '$lib/stores.js';
   import { setFilters, openEntryDetail } from '$lib/boot-supabase.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
@@ -33,6 +33,19 @@
     return out;
   });
 </script>
+
+<!-- ESCRITORIO ≥1000 (refresh §11.57): título "Diario" + cifras integradas (obras · entradas)
+     junto a él; la barra de filtros pasa a UNA fila. Solo desktop (CSS); móvil intacto. -->
+<div class="diario-head">
+  <h2 class="dh-title">Diario</h2>
+  {#if $dbStatus?.counts}
+    <div class="dh-count">
+      <span class="dh-n gold">{$dbStatus.counts.obra.toLocaleString('es-ES')}</span><span class="dh-l">obras</span>
+      <span class="dh-dot"></span>
+      <span class="dh-n">{$dbStatus.counts.entrada.toLocaleString('es-ES')}</span><span class="dh-l">entradas</span>
+    </div>
+  {/if}
+</div>
 
 <div class="filters">
   <div class="toprow">
@@ -210,6 +223,83 @@
     padding: 2.6rem 1rem;
     border: 1px dashed var(--line-strong);
     border-radius: var(--radius);
+  }
+
+  /* ── cabecera del Diario (título + cifras integradas): solo escritorio ≥1000 ── */
+  .diario-head {
+    display: none;
+  }
+  @media (min-width: 1000px) {
+    .diario-head {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin: 0 0 18px;
+    }
+    .dh-title {
+      font-family: var(--font-display);
+      font-size: 2.1rem;
+      font-weight: 500;
+      line-height: 1;
+      margin: 0;
+    }
+    .dh-count {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding-bottom: 3px;
+    }
+    .dh-n {
+      font-family: var(--font-data);
+      font-size: 0.95rem;
+      color: var(--ink-2);
+    }
+    .dh-n.gold {
+      color: var(--gold);
+    }
+    .dh-l {
+      font-family: var(--font-data);
+      font-size: 0.62rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .dh-dot {
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: var(--line-strong);
+      margin: 0 3px;
+    }
+    /* filtros en UNA fila: toprow y selects se disuelven (display:contents) → sus hijos fluyen */
+    .filters {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 16px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .toprow,
+    .selects {
+      display: contents;
+    }
+    .search {
+      flex: 1 1 260px;
+    }
+    .selects select {
+      flex: 0 1 auto;
+    }
+    /* el toggle de vista, a la derecha del todo */
+    .viewtoggle {
+      order: 99;
+      margin-left: auto;
+    }
+    /* el contador suelto se integra en la cabecera → se oculta en escritorio */
+    .count {
+      display: none;
+    }
   }
   .empty .mark {
     color: var(--accent);

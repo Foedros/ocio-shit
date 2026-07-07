@@ -83,6 +83,9 @@
   {:else if error}
     <div class="err"><p>No se pudo cargar el inicio.</p><button onclick={load}>Reintentar</button></div>
   {:else if d}
+    <!-- Escritorio ≥1000 (refresh §11.57): dashboard 2-col — HERO a la izquierda, PUERTAS a la
+         derecha. Los wrappers son display:contents en móvil (0 cambio) y columnas en escritorio. -->
+    <div class="hp-col a">
     <!-- ===== HERO IDENTIDAD (→ Perfil) ===== -->
     <button class="hero door" onclick={() => onnavigate('perfil')}>
       <div class="hero-top">
@@ -127,7 +130,9 @@
       <span class="r-txt"><strong>~{racha} días</strong> de racha máxima</span>
       <span class="r-cav mono">APROX. · FECHAS DE VOTO</span>
     </div>
+    </div><!-- /hp-col a -->
 
+    <div class="hp-col b">
     <!-- ===== REGISTRAR (acción principal) ===== -->
     <div class="reg-block">
       <button class="reg" onclick={() => onregister()}>
@@ -198,11 +203,20 @@
         <div class="arrow mono push">PERFIL →</div>
       </button>
     </div>
+    </div><!-- /hp-col b -->
   {/if}
 </section>
 
 <style>
   .home { display: flex; flex-direction: column; gap: 14px; padding-bottom: 1rem; }
+  /* móvil/tablet: los wrappers de columna NO existen para el layout (todo fluye como antes) */
+  .hp-col { display: contents; }
+  /* escritorio ≥1000: dashboard 2-col (HERO 1.15fr · PUERTAS 1fr), usando el ancho */
+  @media (min-width: 1000px) {
+    .home { display: grid; grid-template-columns: 1.15fr 1fr; gap: 22px; align-items: start; }
+    .hp-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .hp-col.a { position: sticky; top: 84px; }
+  }
   .mono { font-family: var(--font-data); }
   .micro { font-size: 10px; letter-spacing: 0.14em; color: var(--ink-3); text-transform: uppercase; }
   .faint { color: var(--ink-3); }

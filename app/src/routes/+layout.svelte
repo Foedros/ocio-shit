@@ -193,6 +193,19 @@
     padding: 1rem 1rem 4rem;
   }
 
+  /* ESCRITORIO ≥1000 (refresh §11.57): el ancho al servicio del contenido — main más ancho y la
+     barra de marca de +layout se retira (la sustituye el top bar de +page, con marca + nav +
+     cuenta en una línea). Móvil y el rango 701-999 quedan INTACTOS. */
+  @media (min-width: 1000px) {
+    .bar {
+      display: none;
+    }
+    main {
+      max-width: 1240px;
+      padding: 1.1rem 1.5rem 4rem;
+    }
+  }
+
   /* ── MÓVIL (≤700px): el chasis Design toma el control ──
      La cabecera de marca se sustituye por la cabecera móvil (hamburguesa/título/avatar) que vive
      en +page.svelte; el ancho es fijo y el scroll SOLO vertical (clip horizontal defensivo). El

@@ -524,6 +524,12 @@
 
   .prows { display: grid; grid-template-columns: 1fr; gap: 10px; }
   @media (min-width: 640px) { .prows { grid-template-columns: 1fr 1fr; gap: 12px; } }
+  /* escritorio ≥1000 (refresh §11.57): el gabinete usa el ancho — más medallas por fila y las
+     filas de progreso a 3 columnas. Móvil intacto (solo añade una regla en el rango ancho). */
+  @media (min-width: 1000px) {
+    .medals { grid-template-columns: repeat(7, 1fr); }
+    .prows { grid-template-columns: 1fr 1fr 1fr; }
+  }
   .prow { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 13px; display: flex; gap: 13px; align-items: center; animation: fadeIn 0.5s both; transition: background 0.25s; }
   .prow:hover { background: #1b1712; }
   .p-ic { width: 42px; height: 42px; border-radius: 12px; background: #1b1712; border: 1px solid var(--line-strong); display: flex; align-items: center; justify-content: center; flex: none; filter: grayscale(0.4); opacity: 0.75; }

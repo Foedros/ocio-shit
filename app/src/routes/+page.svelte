@@ -158,6 +158,37 @@
   <button class="mh-avatar" aria-label="Ir a tu perfil" onclick={() => navTo('perfil')}>{avatarInitial}</button>
 </header>
 
+<!-- ESCRITORIO ≥1000 (refresh §11.57): top bar en una línea — marca · nav agrupada por intención
+     (Consulta · Análisis · Personal, con separadores) · buscar/cuenta. Solo ≥1000px (CSS);
+     entre 701-999 se muestra el .tabs de siempre; ≤700 el chasis móvil. -->
+<nav class="topbar" aria-label="Navegación">
+  <div class="tb-brand">
+    <span class="tb-logo">O</span>
+    <span class="tb-name"><span class="tb-title">Ocio&nbsp;Shit</span><span class="tb-sub lbl">Archivo cultural</span></span>
+  </div>
+  <div class="tb-nav">
+    <button class="tb-i" class:on={view === 'home'} onclick={() => navTo('home')}>Inicio</button>
+    <button class="tb-i" class:on={view === 'diario'} onclick={() => navTo('diario')}>Diario</button>
+    <button class="tb-i" class:on={view === 'colecciones'} onclick={() => navTo('colecciones')}>Colecciones</button>
+    <span class="tb-sep"></span>
+    <button class="tb-i" class:on={view === 'estadisticas'} onclick={() => navTo('estadisticas')}>Estadísticas</button>
+    <button class="tb-i" class:on={view === 'timeline'} onclick={() => navTo('timeline')}>Timeline</button>
+    <button class="tb-i" class:on={view === 'constelacion'} onclick={() => navTo('constelacion')}>Constelación</button>
+    <span class="tb-sep"></span>
+    <button class="tb-i" class:on={view === 'perfil'} onclick={() => navTo('perfil')}>Perfil</button>
+    <button class="tb-i" class:on={view === 'hall'} onclick={() => navTo('hall', { hallMode: 'fame' })}>Hall of Fame</button>
+    <button class="tb-i" class:on={view === 'wrapped'} onclick={() => navTo('wrapped')}>Wrapped</button>
+  </div>
+  <div class="tb-right">
+    <button class="tb-search" aria-label="Buscar en el Diario" onclick={() => navTo('diario')}>
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
+    </button>
+    <button class="tb-acct" class:on={view === 'cuenta'} aria-label="Cuenta y datos" onclick={() => navTo('cuenta')}>
+      <span class="tb-av">{avatarInitial}</span>
+    </button>
+  </div>
+</nav>
+
 <nav class="tabs">
   <button class:active={view === 'home'} onclick={() => (view = 'home')}>Inicio</button>
   <button class:active={view === 'diario'} onclick={() => (view = 'diario')}>Diario</button>
@@ -377,6 +408,7 @@
     display: flex;
     gap: 0.3rem;
     margin-bottom: 1.1rem;
+    flex-wrap: wrap;
   }
   .tabs button {
     background: none;
@@ -391,6 +423,147 @@
   .tabs button.active {
     color: var(--ink);
     border-bottom-color: var(--accent);
+  }
+
+  /* ════ TOP BAR de escritorio (refresh §11.57) — oculta por defecto; solo ≥1000px ════ */
+  .topbar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    height: 62px;
+    padding: 0 18px;
+    margin: -0.4rem 0 1.4rem;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, #0b0a08 82%, transparent);
+    backdrop-filter: blur(12px);
+    position: sticky;
+    top: 8px;
+    z-index: 20;
+  }
+  .tb-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    flex: none;
+  }
+  .tb-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, #f4b36c, #c2662c);
+    display: grid;
+    place-items: center;
+    font-family: var(--font-display);
+    color: #0b0a08;
+    font-weight: 600;
+    font-size: 1.2rem;
+    box-shadow: 0 3px 10px rgba(232, 96, 44, 0.3);
+  }
+  .tb-name {
+    display: flex;
+    flex-direction: column;
+    line-height: 1;
+  }
+  .tb-title {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .tb-sub {
+    font-size: 0.5rem;
+    color: var(--ink-3);
+    margin-top: 3px;
+  }
+  .tb-nav {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+    justify-content: center;
+    min-width: 0;
+  }
+  .tb-i {
+    background: none;
+    border: none;
+    color: var(--ink-2);
+    font-family: var(--font-text);
+    font-size: 0.87rem;
+    padding: 7px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.2s, background 0.2s;
+  }
+  .tb-i:hover {
+    color: var(--ink);
+    background: var(--surface);
+  }
+  .tb-i.on {
+    color: var(--gold);
+    background: #171410;
+    font-weight: 600;
+  }
+  .tb-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--line-strong);
+    flex: none;
+    margin: 0 7px;
+  }
+  .tb-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+  }
+  .tb-search {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1px solid var(--line-strong);
+    background: none;
+    color: var(--ink-2);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .tb-search:hover {
+    color: var(--ink);
+    border-color: var(--hairline-plus);
+  }
+  .tb-acct {
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .tb-acct:hover,
+  .tb-acct.on {
+    border-color: var(--hairline-plus);
+  }
+  .tb-av {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(140deg, #2e2820, #14110d);
+    border: 1px solid var(--hairline-plus);
+    display: grid;
+    place-items: center;
+    font-family: var(--font-display);
+    color: var(--gold);
+    font-size: 0.95rem;
+  }
+  @media (min-width: 1000px) {
+    .topbar { display: flex; }
+    .tabs { display: none; }
   }
   .hero-empty {
     text-align: center;
