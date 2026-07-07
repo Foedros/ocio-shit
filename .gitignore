@@ -26,6 +26,7 @@ carpeta_durable/
 docs/
 diseno/
 CLAUDE.md
+references/
 
 # Secrets
 .env
