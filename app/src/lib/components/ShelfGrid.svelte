@@ -18,7 +18,7 @@
   let { items = [], resetKey = undefined } = $props();
 
   const GAP = 0;
-  const OVERSCAN = 2;
+  const OVERSCAN = 1; // §11.58: 1 fila de colchón (con 8-12 lomos 3D por fila, menos montaje = más fluido)
   let viewport = $state(null);
   let width = $state(360);
   let height = $state(480);
@@ -61,16 +61,21 @@
     if (viewport) viewport.scrollTop = 0;
   });
 
-  // ── geometría: móvil 4 / escritorio 7 lomos por balda; H se ajusta al ancho ──
-  // cada DVD avanza (CW − SP·0.5) = H·0.592; el último añade su carátula completa (0.075H) y el
-  // lomo plegado sobresale (0.15H) → ancho ≈ H·(0.592·cols + 0.225) + padding. Se despeja H.
-  let cols = $derived(width < 560 ? 4 : 7);
-  const PAD = 22;
-  let H = $derived(Math.max(128, Math.min(210, Math.floor((width - 2 * PAD) / (0.592 * cols + 0.28)))));
+  // ── geometría DINÁMICA (§11.58): las cajas por fila salen del ancho (slot constante, NO
+  // hardcodeado por breakpoint) y H se DESPEJA para llenar el ancho exacto — sin hueco muerto.
+  // Cada DVD avanza (CW − SP·0.5) = 0.592H; el último añade su carátula (0.075H). A la DERECHA se
+  // reserva RES·H para que el ÚLTIMO lomo, al deslizarse en hover (tx=0.22H), NO se salga de la
+  // balda. Ecuación: (0.592·cols + 0.075 + RES)·H + 2·PAD = ancho → se despeja H con la reserva
+  // ya incluida (la reserva queda como espacio a la derecha, no como hueco muerto). ──
+  const PAD = 14;
+  const SLOT = 88; // avance objetivo por caja → nº de cajas ≈ ancho/SLOT (tamaño ~constante: móvil 4)
+  const RES = 0.24; // reserva de deslizamiento a la derecha (≈ tx=0.22H + cojín del lomo del último)
+  let cols = $derived(Math.max(3, Math.min(10, Math.round((width - 2 * PAD) / SLOT))));
+  let H = $derived(Math.max(118, Math.min(196, Math.floor((width - 2 * PAD) / (0.592 * cols + 0.075 + RES)))));
   let SP = $derived(Math.round(H * 0.15)); // grosor de la caja (lomo)
   let CW = $derived(Math.round(H * 0.667)); // ancho UNIFORME de carátula (2:3)
   let overlap = $derived(Math.round(-SP * 0.5)); // solape (canto) — DVDs apretados
-  let tx = $derived(Math.round(H * 0.22)); // deslizamiento en hover
+  let tx = $derived(Math.round(H * 0.22)); // deslizamiento en hover (cabe en la reserva RES·H)
   let txPull = $derived(Math.round(H * 0.42)); // extracción al clicar
   // FONDO del estante (§11.56): tres capas para que el escorzo 3D apoye DENTRO, no fuera —
   //   · superficie (z1): madera que RECEDE por detrás de la base de las cajas (les da suelo)
@@ -79,6 +84,10 @@
   let LIP = $derived(Math.round(H * 0.12)); // alto del canto frontal
   let DEPTH = $derived(Math.round(H * 0.34)); // cuánto sube la superficie tras la caja
   let SEAT = $derived(Math.round(H * 0.06)); // cuánto se hunde la base de la caja en el estante
+  // la NOTA vive al fondo del lomo y el lip la tapaba (§11.58): se sube con padding-bottom del
+  // lomo = alto del lip + margen → queda POR ENCIMA del borde del lip, visible en todas. No se
+  // reduce el lip (que sigue tapando el sangrado de la base del escorzo).
+  let scoreLift = $derived(LIP + Math.round(H * 0.05));
   let rowH = $derived(LIP - SEAT + H + 22); // base hundida + caja + respiro de la balda de abajo
 
   let rows = $derived(Math.ceil(items.length / cols));
@@ -146,7 +155,7 @@
                 {/if}
                 <span class="cglow"></span>
               </span>
-              <span class="spine" style="width:{SP}px">
+              <span class="spine" style="width:{SP}px; padding-bottom:{scoreLift}px">
                 <span class="stripe" style="background:{col(it.categoria).c}"></span>
                 <span class="sdot" style="width:{Math.round(SP * 0.4)}px; height:{Math.round(SP * 0.4)}px; background:{col(it.categoria).c}"></span>
                 <span class="vtitle" style="font-size:{Math.min(SP * 0.5, 15)}px; max-height:{H - SP * 1.6}px">{it.titulo}</span>
