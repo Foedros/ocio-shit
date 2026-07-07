@@ -1,18 +1,21 @@
-// TRANSICIONES DE PESTAÑA (§11.59) · diseño: diseno/Ocio Shit - Transiciones.html
-// Cuatro formas, un ritmo común (~350ms, --ease-out-expo): al cambiar de sección se SORTEA una —
-//   cine (diafragma que cierra/abre + parpadeo de proyector) · literatura (la página saliente
-//   voltea desde el lomo izquierdo, con sombra) · cómic (viñetas que se resuelven en stagger) ·
-//   videojuego (disolución pixelada tipo level-load, con el color de la sección destino).
+// TRANSICIONES DE PESTAÑA (§11.59, refinadas §11.60) · diseño: diseno/Ocio Shit - Transiciones.html
+// Cuatro formas, sorteo aleatorio en cada cambio de sección — duraciones/curvas/efectos del bundle:
+//   CINE · cinemascope — dos barras negras cierran (380ms) con una junta cálida donde se
+//     encuentran, el swap ocurre detrás, y retraen (460ms ease-out-expo).
+//   LITERATURA · página — la hoja saliente (clon opaco del .page) voltea desde el lomo izquierdo
+//     (780ms, 3 keyframes −46°→−152°, perspectiva 1900px origen 32%) con doble luz: sombra
+//     ambiental sobre lo nuevo (se disipa) + iluminación cálida→sombra en la propia hoja.
+//   CÓMIC · viñetas — rejilla 3×2 (gutter 7px, filete 1px del acento) resuelta en ORDEN DE
+//     LECTURA (90ms/viñeta, 380ms con leve overshoot, scale .9).
+//   VIDEOJUEGO · píxeles — 20×11 del acento en BARRIDO DIAGONAL (rango col+fila × 20ms + jitter
+//     ≤34ms, 150ms scale .28): level-load ordenado, no ruido puro.
 // SOLO transform+opacity sobre OVERLAYS position:fixed (z-15: bajo topbar 20 · mhead 30 · FAB 40,
-// que permanecen quietos como en el diseño) → cero layout shift. reduced-motion = FUNDIDO simple
-// (clon del contenido saliente que se desvanece). Web Animations API, NO la View Transitions API
-// → no compite con la "carátula que vuela" del detalle (la VT captura y las WAAPI siguen su
-// timeline; los overlays se auto-retiran). La Constelación queda FUERA (overlay fijo con su
-// propia presentación e history) — lo decide navTo en +page.
-import { DUR, prefersReducedMotion } from './motion.js';
+// que permanecen quietos) → cero layout shift. reduced-motion = FUNDIDO simple (340ms, clon del
+// contenido saliente que se desvanece). Web Animations API, NO la View Transitions API → no
+// compite con la "carátula que vuela" del detalle (verificado E2E). La Constelación queda FUERA
+// (overlay fijo con su propia presentación e history) — lo decide navTo en +page.
+import { prefersReducedMotion } from './motion.js';
 
-const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)'; // --ease-out-expo
-const TX = DUR.base + 50; // ritmo común ~350ms (entre --dur-base y --dur-slow)
 const BG = '#0b0a08'; // --bg (los overlays no pueden leer var() con fiabilidad en gradientes inline)
 const TYPES = ['cine', 'literatura', 'comic', 'videojuego'];
 // color de acento por sección DESTINO (viñetas del cómic / píxeles del videojuego)
@@ -50,8 +53,8 @@ export function tabTransition(swap, { to = '' } = {}) {
     wrap.style.background = BG;
     clonePage(wrap);
     swap();
-    wrap.animate([{ opacity: 1 }, { opacity: 0 }], { duration: DUR.base, easing: 'ease', fill: 'forwards' });
-    done([wrap], DUR.base + 40);
+    wrap.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 340, easing: 'ease', fill: 'forwards' });
+    done([wrap], 360);
     return;
   }
 
@@ -74,80 +77,102 @@ function clonePage(wrap) {
   wrap.appendChild(clone);
 }
 
-// ── CINE · diafragma: iris que cierra sobre lo viejo, swap a oscuras, iris que abre + parpadeo ──
+// ── CINE · cinemascope: dos barras negras cierran con junta cálida, swap detrás, retraen ──
 function cine(swap, done) {
   const wrap = layer();
-  const iris = document.createElement('div');
-  iris.style.cssText =
-    'position:absolute;left:-100%;top:-100%;width:300%;height:300%;transform:scale(1.9);will-change:transform;' +
-    `background:radial-gradient(circle at center, rgba(11,10,8,0) 0%, rgba(11,10,8,0) 21%, ${BG} 22%, ${BG} 100%);`;
-  wrap.appendChild(iris);
-  const flick = document.createElement('div');
-  flick.style.cssText = `position:absolute;inset:0;background:#F2EBDD;opacity:0;`;
-  wrap.appendChild(flick);
-  const close = Math.round(TX * 0.4); // ~140ms cierre (ease-in), el resto apertura
-  const open = TX - close;
-  iris.animate([{ transform: 'scale(1.9)' }, { transform: 'scale(0.02)' }], { duration: close, easing: 'cubic-bezier(.5,0,.75,0)', fill: 'forwards' });
+  const CLOSE = 380, OPEN = 460;
+  const ei = 'cubic-bezier(.5,0,.5,1)', eo = 'cubic-bezier(.22,1,.3,1)';
+  const barT = document.createElement('div');
+  barT.style.cssText = 'position:absolute;left:0;right:0;top:0;height:52%;background:#060504;transform:translateY(-100%);will-change:transform;';
+  const barB = document.createElement('div');
+  barB.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:52%;background:#060504;transform:translateY(100%);will-change:transform;';
+  // filete cálido donde las barras se encuentran
+  const seam = document.createElement('div');
+  seam.style.cssText = 'position:absolute;left:0;right:0;top:50%;height:2px;transform:translateY(-1px);opacity:0;' +
+    'background:linear-gradient(90deg,transparent,#F2C88A 30%,#FBF1DF 50%,#F2C88A 70%,transparent);';
+  wrap.append(barT, barB, seam);
+  barT.animate([{ transform: 'translateY(-100%)' }, { transform: 'translateY(0)' }], { duration: CLOSE, easing: ei, fill: 'forwards' });
+  barB.animate([{ transform: 'translateY(100%)' }, { transform: 'translateY(0)' }], { duration: CLOSE, easing: ei, fill: 'forwards' });
+  seam.animate([{ opacity: 0 }, { opacity: 0.95 }], { duration: CLOSE, easing: 'ease-in', fill: 'forwards' });
   setTimeout(() => {
-    swap(); // a pantalla (casi) cubierta: lo nuevo entra sin verse el corte
-    iris.animate([{ transform: 'scale(0.02)' }, { transform: 'scale(1.9)' }], { duration: open, easing: EASE, fill: 'forwards' });
-    flick.animate([{ opacity: 0 }, { opacity: 0.45 }, { opacity: 0 }, { opacity: 0.25 }, { opacity: 0 }], { duration: open, easing: 'linear' });
-  }, close + 10);
-  done([wrap], TX + 90);
+    swap(); // a pantalla cubierta por las barras: lo nuevo entra sin verse el corte
+    barT.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(-100%)' }], { duration: OPEN, easing: eo, fill: 'forwards' });
+    barB.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(100%)' }], { duration: OPEN, easing: eo, fill: 'forwards' });
+    seam.animate([{ opacity: 0.95 }, { opacity: 0 }], { duration: OPEN * 0.5, easing: 'ease-out', fill: 'forwards' });
+  }, CLOSE);
+  done([wrap], CLOSE + OPEN + 30);
 }
 
-// ── LITERATURA · página: lo SALIENTE (clon opaco) voltea desde el lomo izquierdo, con sombra ──
+// ── LITERATURA · página: la hoja saliente voltea desde el lomo izquierdo, con doble luz ──
 function literatura(swap, done) {
+  const D = 780;
   const wrap = layer();
-  wrap.style.perspective = '1600px';
+  wrap.style.perspective = '1900px';
+  wrap.style.perspectiveOrigin = '32% 50%';
+  // sombra AMBIENTAL sobre lo nuevo (aún cubierto): se disipa mientras la hoja se levanta
+  const cast = document.createElement('div');
+  cast.style.cssText = 'position:absolute;inset:0;background:linear-gradient(100deg,rgba(0,0,0,.42),rgba(0,0,0,0) 55%);opacity:1;';
+  wrap.appendChild(cast);
   const holder = document.createElement('div');
   holder.style.cssText = `position:absolute;inset:0;transform-origin:left center;backface-visibility:hidden;will-change:transform;background:${BG};overflow:hidden;`;
   clonePage(holder);
-  const shadow = document.createElement('div');
-  shadow.style.cssText = 'position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.5),rgba(0,0,0,0) 60%);opacity:0;';
-  holder.appendChild(shadow);
+  // iluminación de la hoja que gira: brillo cálido junto al lomo, sombra creciente al borde lejano
+  const shade = document.createElement('div');
+  shade.style.cssText = 'position:absolute;inset:0;opacity:0;' +
+    'background:linear-gradient(90deg,rgba(255,247,235,.12),rgba(0,0,0,0) 26%,rgba(0,0,0,.32) 84%,rgba(0,0,0,.52));';
+  holder.appendChild(shade);
   wrap.appendChild(holder);
   swap(); // lo nuevo ya vive DEBAJO de la página que voltea
-  holder.animate([{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(-108deg)' }], { duration: TX, easing: EASE, fill: 'forwards' });
-  shadow.animate([{ opacity: 0 }, { opacity: 0.6 }], { duration: TX, easing: EASE, fill: 'forwards' });
-  done([wrap], TX + 60);
+  holder.animate(
+    [
+      { transform: 'rotateY(0deg)', offset: 0 },
+      { transform: 'rotateY(-46deg)', offset: 0.4 },
+      { transform: 'rotateY(-152deg)', offset: 1 }
+    ],
+    { duration: D, easing: 'cubic-bezier(.42,0,.26,1)', fill: 'forwards' }
+  );
+  shade.animate([{ opacity: 0 }, { opacity: 1, offset: 0.55 }, { opacity: 0.82 }], { duration: D, easing: 'ease-in-out', fill: 'forwards' });
+  cast.animate([{ opacity: 1 }, { opacity: 0 }], { duration: D * 0.72, easing: 'ease-out', fill: 'forwards' });
+  done([wrap], D + 30);
 }
 
-// ── CÓMIC (viñetas 3×2, stagger secuencial) · VIDEOJUEGO (12×7 píxeles, orden aleatorio) ──
+// ── CÓMIC (viñetas 3×2, orden de lectura) · VIDEOJUEGO (20×11, barrido diagonal + jitter) ──
 function tiles(type, accent, swap, done) {
   swap(); // lo nuevo entra cubierto por la rejilla, que se disuelve revelándolo
   const wrap = layer();
   wrap.style.display = 'grid';
-  let cols, rows, stagger, dur;
+  let cols, rows, base;
   if (type === 'comic') {
-    cols = 3; rows = 2; stagger = 30; dur = 200;
-    wrap.style.gap = '4px';
-    wrap.style.padding = '4px';
+    cols = 3; rows = 2; base = 90;
+    wrap.style.gap = '7px';
+    wrap.style.padding = '7px';
   } else {
-    cols = 12; rows = 7; stagger = 2; dur = 180;
-    wrap.style.gap = '2px';
+    cols = 20; rows = 11; base = 20;
   }
   wrap.style.gridTemplateColumns = `repeat(${cols},1fr)`;
   wrap.style.gridTemplateRows = `repeat(${rows},1fr)`;
   const N = cols * rows;
-  const order = [...Array(N).keys()];
-  if (type === 'videojuego') order.sort(() => Math.random() - 0.5); // disolución pixelada
-  const tls = [];
+  const tiles = [];
   for (let i = 0; i < N; i++) {
     const t = document.createElement('div');
     t.style.cssText = type === 'comic'
-      ? `background:${BG};box-shadow:inset 0 0 0 1.5px ${accent}66;border-radius:3px;will-change:transform,opacity;`
-      : `background:${accent};opacity:.92;will-change:transform,opacity;`;
+      ? `background:${BG};box-shadow:inset 0 0 0 1px ${accent}66;border-radius:2px;will-change:transform,opacity;`
+      : `background:${accent};will-change:transform,opacity;`;
     wrap.appendChild(t);
-    tls.push(t);
+    tiles.push({ el: t, col: i % cols, row: (i / cols) | 0, i });
   }
-  order.forEach((tileIdx, k) => {
-    const t = tls[tileIdx];
+  let maxDelay = 0;
+  for (const t of tiles) {
+    // cómic: stagger en ORDEN DE LECTURA · videojuego: barrido DIAGONAL (col+fila) con jitter leve
+    const rank = type === 'comic' ? t.i : t.col + t.row;
+    const delay = rank * base + (type === 'videojuego' ? Math.random() * 34 : 0);
+    if (delay > maxDelay) maxDelay = delay;
     if (type === 'comic') {
-      t.animate([{ opacity: 1, transform: 'scale(1) rotate(0deg)' }, { opacity: 0, transform: 'scale(.86) rotate(2.5deg)' }], { duration: dur, delay: k * stagger, easing: EASE, fill: 'forwards' });
+      t.el.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.9)' }], { duration: 380, delay, easing: 'cubic-bezier(.34,1.16,.5,1)', fill: 'forwards' });
     } else {
-      t.animate([{ opacity: 0.92, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.4)' }], { duration: dur, delay: k * stagger, easing: 'cubic-bezier(.7,0,.5,1)', fill: 'forwards' });
+      t.el.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.28)' }], { duration: 150, delay, easing: 'cubic-bezier(.6,0,.4,1)', fill: 'forwards' });
     }
-  });
-  done([wrap], N * stagger + dur + 40);
+  }
+  const tail = type === 'comic' ? 400 : 170;
+  done([wrap], maxDelay + tail + 40);
 }
