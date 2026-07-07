@@ -379,7 +379,11 @@
     position: absolute; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center;
   }
-  .big-gold { font-family: var(--font-display); font-size: 50px; color: var(--gold); font-weight: 500; line-height: 0.9; font-variant-numeric: tabular-nums; }
+  /* 36px: "NN,NN" ≈ 87px de ancho — aire claro dentro del hueco del arco más interno (radio
+     interior 61−4,5 escalado ≈ 54px a 200px → 108px de diámetro). A 50px eran ~122px y el número
+     se montaba sobre los arcos; a 40px los dígitos extremos aún besaban el arco verde
+     (verificado midiendo rects reales + captura). */
+  .big-gold { font-family: var(--font-display); font-size: 36px; color: var(--gold); font-weight: 500; line-height: 0.9; font-variant-numeric: tabular-nums; }
   .mono { font-family: var(--font-data); }
   .dim { font-size: 10px; color: var(--ink-3); letter-spacing: 0.1em; margin-top: 4px; }
   .serif-it { font-family: var(--font-display); font-style: italic; font-size: 0.95rem; color: var(--ink-2); line-height: 1.35; margin: 6px 0 16px; text-align: center; }
@@ -414,7 +418,9 @@
   .card.stat { padding: 16px 18px; display: flex; flex-direction: column; justify-content: center; }
   .card.stat .num { font-family: var(--font-display); font-size: 34px; color: var(--ink); font-weight: 500; line-height: 0.9; font-variant-numeric: tabular-nums; }
   .card.stat .num.gold { color: var(--gold); }
-  .card.stat .num .u { font-size: 15px; color: var(--ink-3); }
+  /* la unidad respira con MARGEN (6px): el espacio del markup colapsa — el span de dígitos está
+     vacío en el primer layout (countUp lo rellena después) y el navegador no lo recupera. */
+  .card.stat .num .u { font-size: 15px; color: var(--ink-3); margin-left: 6px; }
   .card.stat .lab { font-size: 10px; color: var(--ink-3); letter-spacing: 0.08em; margin-top: 8px; }
 
   .card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
