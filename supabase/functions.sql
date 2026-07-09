@@ -937,7 +937,80 @@ begin
 end;
 $$;
 
+-- LA INDECISIÓN (pool_ocio, §11.63) — añadir una opción al pool con LÍMITE 10 SERVER-SIDE y,
+-- opcionalmente, el intercambio atómico de "hacer sitio" (p.sale_id = la opción que sale, se
+-- borra en la MISMA transacción antes de contar). SECURITY INVOKER: la RLS por owner_id hace
+-- que count(*)/delete solo vean/toquen lo del dueño. tiempo: 0='30 min' · 1='1–2 h' · 2='la tarde'.
+create or replace function ocio_pool_agregar(p jsonb)
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare
+  v_id      text := gen_random_uuid()::text;
+  v_tipo    text := coalesce(p->>'tipo', 'consumible');
+  v_obra_id text := nullif(trim(coalesce(p->>'obra_id', '')), '');
+  v_texto   text := nullif(trim(coalesce(p->>'texto_libre', '')), '');
+  v_energia text := p->>'energia';
+  v_foco    text := p->>'foco';
+  v_tiempo  integer := (p->>'tiempo')::integer;
+  v_sale    text := nullif(trim(coalesce(p->>'sale_id', '')), '');
+  v_n       integer;
+begin
+  -- serializa los altas del MISMO usuario (multi-dispositivo): sin esto, dos agregar concurrentes
+  -- pasarían ambos el count()<10 y el pool quedaría en 11. Lock transaccional, se libera al commit.
+  perform pg_advisory_xact_lock(hashtext('pool_ocio:' || auth.uid()::text));
+  if v_tipo not in ('consumible','recurrente') then raise exception 'tipo inválido: %', v_tipo; end if;
+  if (v_obra_id is null) = (v_texto is null) then
+    raise exception 'La opción necesita una obra del archivo O un texto libre (exactamente uno).';
+  end if;
+  -- OJO: NULL not in (...) evalúa a NULL y el IF no dispara — el is null va explícito
+  if v_energia is null or v_energia not in ('activa','pasiva') then raise exception 'energía inválida: %', coalesce(v_energia, '(vacía)'); end if;
+  if v_foco is null or v_foco not in ('centrado','disperso') then raise exception 'foco inválido: %', coalesce(v_foco, '(vacío)'); end if;
+  if v_tiempo is null or v_tiempo not between 0 and 2 then raise exception 'tiempo inválido.'; end if;
+  if v_obra_id is not null then
+    if not exists (select 1 from obra where id = v_obra_id) then
+      raise exception 'La obra no existe en tu archivo.';
+    end if;
+    if exists (select 1 from pool_ocio where obra_id = v_obra_id and id is distinct from v_sale) then
+      raise exception 'Esa obra ya está en el pool.';
+    end if;
+  end if;
+  if v_sale is not null then
+    delete from pool_ocio where id = v_sale;  -- RLS: solo lo del dueño
+    get diagnostics v_n = row_count;
+    if v_n = 0 then
+      -- estado rancio del cliente (la eligió otro dispositivo): mensaje accionable, no un bucle de "lleno"
+      raise exception 'La opción que iba a salir ya no está en el pool — recarga e inténtalo de nuevo.';
+    end if;
+  end if;
+  select count(*) into v_n from pool_ocio;    -- RLS: cuenta SOLO las filas del dueño
+  if v_n >= 10 then
+    raise exception 'El pool está lleno (10). Para que entre una opción, otra tiene que salir.';
+  end if;
+  insert into pool_ocio (id, tipo, obra_id, texto_libre, energia, foco, tiempo)
+    values (v_id, v_tipo, v_obra_id, v_texto, v_energia, v_foco, v_tiempo);
+  return jsonb_build_object('ok', true, 'id', v_id, 'n', v_n + 1);
+end;
+$$;
+
+-- Quitar una opción del pool (la usa también "lo hago" con las consumibles). Devuelve el nuevo n.
+create or replace function ocio_pool_quitar(p_id text)
+  returns jsonb language plpgsql security invoker set search_path = public
+as $$
+declare v_n integer;
+begin
+  delete from pool_ocio where id = p_id;  -- RLS: solo lo del dueño
+  get diagnostics v_n = row_count;
+  if v_n = 0 then return jsonb_build_object('ok', false, 'reason', 'no_existe'); end if;
+  select count(*) into v_n from pool_ocio;
+  return jsonb_build_object('ok', true, 'n', v_n);
+end;
+$$;
+
 -- ── Permisos: solo el usuario autenticado; nunca anon/public ────────────────────────────────
+revoke all on function ocio_pool_agregar(jsonb) from public, anon;
+grant  execute on function ocio_pool_agregar(jsonb) to authenticated;
+revoke all on function ocio_pool_quitar(text) from public, anon;
+grant  execute on function ocio_pool_quitar(text) to authenticated;
 revoke all on function ocio_set_titulo_activo(text) from public, anon;
 grant  execute on function ocio_set_titulo_activo(text) to authenticated;
 revoke all on function ocio_record_unlock(text, text, date) from public, anon;

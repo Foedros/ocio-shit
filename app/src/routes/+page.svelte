@@ -15,14 +15,16 @@
   import Splash from '$lib/components/Splash.svelte';
   import PullToRefresh from '$lib/components/PullToRefresh.svelte';
   import Constelacion from '$lib/components/Constelacion.svelte';
+  import IndecisionPanel from '$lib/components/IndecisionPanel.svelte';
   import { tabTransition, tabTxInterrupt } from '$lib/tab-transitions.js';
   import Login from '$lib/components/Login.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Button from '$lib/components/Button.svelte';
   import Toast from '$lib/components/Toast.svelte';
 
-  let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | constelacion | wrapped | perfil | hall | cuenta
+  let view = $state('home'); // home | diario | colecciones | estadisticas | timeline | constelacion | indecision | wrapped | perfil | hall | cuenta
   let showAdd = $state(false);
+  let addPrefill = $state(null); // La Indecisión (§11.63): registrar en el Diario con la obra precargada
 
   // Cierre accidental del registro (✕ / tap fuera / Escape) CON datos escritos → confirmación
   // ("¿Descartar la entrada?"), nunca se pierde ni se guarda nada en silencio. El formulario
@@ -36,6 +38,7 @@
   function closeAdd() {
     showAdd = false;
     confirmDiscard = false;
+    addPrefill = null;
   }
 
   // Pull-to-refresh (Tanda 7): re-consulta los datos de la PANTALLA ACTUAL. Los paneles
@@ -56,7 +59,8 @@
 
   const TITLES = {
     home: 'Inicio', diario: 'Diario', colecciones: 'Colecciones', estadisticas: 'Estadísticas',
-    timeline: 'Timeline', constelacion: 'Constelación', wrapped: 'Wrapped', perfil: 'Perfil', cuenta: 'Cuenta'
+    timeline: 'Timeline', constelacion: 'Constelación', indecision: 'La Indecisión',
+    wrapped: 'Wrapped', perfil: 'Perfil', cuenta: 'Cuenta'
   };
   let title = $derived(
     view === 'hall' ? (hallMode === 'shame' ? 'Hall of Shame' : 'Hall of Fame') : (TITLES[view] ?? 'Ocio Shit')
@@ -213,6 +217,7 @@
     <button class="tb-i" class:on={view === 'estadisticas'} onclick={() => navTo('estadisticas')}>Estadísticas</button>
     <button class="tb-i" class:on={view === 'timeline'} onclick={() => navTo('timeline')}>Timeline</button>
     <button class="tb-i" class:on={view === 'constelacion'} onclick={() => navTo('constelacion')}>Constelación</button>
+    <button class="tb-i" class:on={view === 'indecision'} onclick={() => navTo('indecision')}>La Indecisión</button>
     <span class="tb-sep"></span>
     <button class="tb-i" class:on={view === 'perfil'} onclick={() => navTo('perfil')}>Perfil</button>
     <button class="tb-i" class:on={view === 'hall'} onclick={() => navTo('hall', { hallMode: 'fame' })}>Hall of Fame</button>
@@ -235,6 +240,7 @@
   <button class:active={view === 'estadisticas'} onclick={() => navTo('estadisticas')}>Estadísticas</button>
   <button class:active={view === 'timeline'} onclick={() => navTo('timeline')}>Timeline</button>
   <button class:active={view === 'constelacion'} onclick={() => navTo('constelacion')}>Constelación</button>
+  <button class:active={view === 'indecision'} onclick={() => navTo('indecision')}>La Indecisión</button>
   <button class:active={view === 'wrapped'} onclick={() => navTo('wrapped')}>Wrapped</button>
   <button class:active={view === 'perfil'} onclick={() => navTo('perfil')}>Perfil</button>
   <button class:active={view === 'hall'} onclick={() => navTo('hall')}>Hall of Fame</button>
@@ -264,6 +270,8 @@
   <EstadisticasPanel />
 {:else if view === 'timeline'}
   <TimelinePanel />
+{:else if view === 'indecision'}
+  <IndecisionPanel onregistrar={(pre) => { addPrefill = pre; showAdd = true; }} />
 {:else if view === 'wrapped'}
   <WrappedPanel />
 {:else if view === 'perfil'}
@@ -314,7 +322,9 @@
 <!-- FAB: en móvil en TODAS las pantallas; en escritorio solo en Diario (intacto).
      FUERA de .page: el will-change/transform del parallax (Tanda 6) convertiría a .page en
      containing block del fixed y el FAB quedaría anclado al contenido, no al viewport. -->
-{#if canWrite && (mobile || view === 'diario') && !(view === 'diario' && isEmpty)}
+<!-- En La Indecisión el FAB se retira: la sección tiene su propio "+ Añadir" y el botón
+     flotante tapaba el extremo del "✦ Girar" a lo ancho en móvil (§11.63). -->
+{#if canWrite && ((mobile && view !== 'indecision') || view === 'diario') && !(view === 'diario' && isEmpty)}
   <button class="fab" onclick={() => (showAdd = true)} aria-label="Registrar entrada">
     <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
       <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -348,6 +358,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /></svg>Timeline</button>
     <button class="navrow" class:on={view === 'constelacion'} onclick={() => navTo('constelacion')}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="17" r="1.6" /><circle cx="12" cy="6" r="1.6" /><circle cx="19" cy="13" r="1.6" /><path d="M7.2 15.8L10.9 7.4M13.5 6.9l4.2 5M17.5 13.9l-9.9 2.7" /></svg>Constelación</button>
+    <button class="navrow" class:on={view === 'indecision'} onclick={() => navTo('indecision')}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="4" /><circle cx="9" cy="9" r="1.2" fill="currentColor" /><circle cx="15" cy="15" r="1.2" fill="currentColor" /><circle cx="15" cy="9" r="1.2" fill="currentColor" /><circle cx="9" cy="15" r="1.2" fill="currentColor" /></svg>La Indecisión</button>
     <button class="navrow" class:on={view === 'hall' && hallMode === 'fame'} onclick={() => navTo('hall', { hallMode: 'fame' })}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.1 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.3 12 2" /></svg>Hall of Fame</button>
     <button class="navrow" class:on={view === 'hall' && hallMode === 'shame'} onclick={() => navTo('hall', { hallMode: 'shame' })}>
@@ -364,7 +376,7 @@
 </div>
 
 <Sheet open={showAdd} title="Nueva entrada" eyebrow="Registro rápido" onclose={requestCloseAdd}>
-  <QuickAddForm bind:this={addFormRef} onsaved={closeAdd} />
+  <QuickAddForm bind:this={addFormRef} onsaved={closeAdd} prefill={addPrefill} />
   {#if confirmDiscard}
     <div class="discard-scrim" role="alertdialog" aria-modal="true" aria-label="Descartar entrada">
       <div class="discard-box">

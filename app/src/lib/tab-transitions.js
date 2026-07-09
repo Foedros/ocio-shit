@@ -27,7 +27,8 @@ const TYPES = ['cine', 'literatura', 'videojuego'];
 // color de acento por sección DESTINO (píxeles del videojuego)
 const ACCENT = {
   home: '#F2A65A', diario: '#C75D52', colecciones: '#5B9298', estadisticas: '#9580B0',
-  timeline: '#C9A23F', wrapped: '#F2A65A', perfil: '#C9A23F', hall: '#F2A65A', cuenta: '#8A6F4A'
+  timeline: '#C9A23F', indecision: '#F2A65A', wrapped: '#F2A65A', perfil: '#C9A23F',
+  hall: '#F2A65A', cuenta: '#8A6F4A'
 };
 
 let active = false;

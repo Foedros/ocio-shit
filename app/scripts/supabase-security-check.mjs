@@ -10,7 +10,8 @@ import { makePublishableClient, makeSecretClient, CONFIG, require_ } from './lib
 const TABLES = [
   'meta', 'plataforma', 'persona', 'etapa', 'obra', 'entrada', 'etiqueta', 'coleccion', 'logro',
   'logro_desbloqueado', 'momento_canon', 'titulo', 'titulo_desbloqueado', 'perfil_usuario',
-  'obra_etiqueta', 'entrada_etiqueta', 'obra_coleccion', 'entrada_acompanante', 'obra_creador'
+  'obra_etiqueta', 'entrada_etiqueta', 'obra_coleccion', 'entrada_acompanante', 'obra_creador',
+  'pool_ocio'
 ];
 
 // Minimal WELL-FORMED rows (satisfy NOT NULL/CHECK + owner_id), so the ONLY thing that can
@@ -19,7 +20,8 @@ const INSERT_PROBES = {
   persona: () => ({ id: 'sec-' + randomUUID(), nombre: 'sec-probe', owner_id: randomUUID() }),
   obra: () => ({ id: 'sec-' + randomUUID(), titulo: 'sec-probe', categoria: 'pelicula', owner_id: randomUUID() }),
   etiqueta: () => ({ id: 'sec-' + randomUUID(), nombre: 'sec-' + randomUUID(), owner_id: randomUUID() }),
-  coleccion: () => ({ id: 'sec-' + randomUUID(), nombre: 'sec-probe', tipo: 'manual', owner_id: randomUUID() })
+  coleccion: () => ({ id: 'sec-' + randomUUID(), nombre: 'sec-probe', tipo: 'manual', owner_id: randomUUID() }),
+  pool_ocio: () => ({ id: 'sec-' + randomUUID(), tipo: 'consumible', texto_libre: 'sec-probe', energia: 'activa', foco: 'centrado', tiempo: 1, owner_id: randomUUID() })
 };
 
 async function main() {

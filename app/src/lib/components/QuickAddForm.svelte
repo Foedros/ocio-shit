@@ -13,7 +13,9 @@
   import CategoryChip from './CategoryChip.svelte';
   import RatingSlider from './RatingSlider.svelte';
 
-  let { onsaved } = $props();
+  // prefill (La Indecisión §11.63: "Lo hago" sobre una obra consumible → registrar en el Diario
+  // con título/categoría/año precargados; el create-vs-link detecta la obra y completa el resto)
+  let { onsaved, prefill = null } = $props();
 
   let titulo = $state('');
   let categoria = $state('pelicula');
@@ -40,6 +42,14 @@
       valoracion !== '' || anio !== '' || durH !== '' || durMin !== '' || generos.length
     );
   }
+
+  // aplica el prefill al llegar (identidad nueva por apertura; +page lo limpia al cerrar)
+  $effect(() => {
+    if (!prefill) return;
+    titulo = prefill.titulo ?? '';
+    if (prefill.categoria) categoria = prefill.categoria;
+    if (prefill.anio != null) anio = String(prefill.anio);
+  });
 
   // Intro/"Ir" (iOS) NUNCA guarda: pasa el foco al siguiente campo, o cierra el teclado en el
   // último. El guardado es SOLO el tap explícito en "Guardar entrada". El campo Género tiene su

@@ -156,6 +156,43 @@ create table coleccion (
   owner_id     uuid not null default auth.uid()
 );
 
+-- ── pool_ocio ───────────────────────────────────────────────────────────────
+-- LA INDECISIÓN (decisor de ocio, §11.63): hasta 10 opciones por usuario — obra del archivo O
+-- texto libre (exactamente uno) — con los 3 atributos del ánimo. El LÍMITE 10 lo impone la RPC
+-- ocio_pool_agregar SERVER-SIDE (un check no puede contar filas); tiempo: 0='30 min' · 1='1–2 h'
+-- · 2='la tarde'. Consumible se hace y sale; recurrente permanece.
+create table pool_ocio (
+  id           text primary key,
+  tipo         text not null check (tipo in ('consumible','recurrente')),
+  obra_id      text references obra(id) on delete cascade,
+  texto_libre  text,
+  energia      text not null check (energia in ('activa','pasiva')),
+  foco         text not null check (foco in ('centrado','disperso')),
+  tiempo       integer not null check (tiempo between 0 and 2),
+  creado_en    timestamptz not null default now(),
+  owner_id     uuid not null default auth.uid(),
+  check (num_nonnulls(obra_id, nullif(trim(texto_libre), '')) = 1)
+);
+-- la misma obra no ocupa dos huecos (el pool tiene 10; duplicarla lo desperdicia)
+create unique index pool_ocio_obra_unica on pool_ocio(owner_id, obra_id) where obra_id is not null;
+-- el límite 10 también a NIVEL BD (el DML directo por PostgREST no pasa por la RPC): trigger que
+-- serializa por usuario (advisory lock transaccional) y cuenta. La RPC valida antes con el
+-- mensaje bonito; esto es el cinturón duro del invariante "diez huecos". NO es SECURITY DEFINER.
+create or replace function pool_ocio_limite() returns trigger
+  language plpgsql
+  set search_path = public
+  as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('pool_ocio:' || new.owner_id::text));
+  if (select count(*) from pool_ocio where owner_id = new.owner_id) >= 10 then
+    raise exception 'El pool está lleno (10).';
+  end if;
+  return new;
+end;
+$$;
+create trigger trg_pool_ocio_limite before insert on pool_ocio
+  for each row execute function pool_ocio_limite();
+
 -- ── logro ───────────────────────────────────────────────────────────────────
 create table logro (
   id             text primary key,

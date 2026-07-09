@@ -72,6 +72,13 @@ create policy coleccion_ins on coleccion for insert with check (owner_id = auth.
 create policy coleccion_upd on coleccion for update using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 create policy coleccion_del on coleccion for delete using (owner_id = auth.uid());
 
+-- pool_ocio (La Indecisión, §11.63)
+alter table pool_ocio enable row level security;
+create policy pool_ocio_sel on pool_ocio for select using (owner_id = auth.uid());
+create policy pool_ocio_ins on pool_ocio for insert with check (owner_id = auth.uid());
+create policy pool_ocio_upd on pool_ocio for update using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+create policy pool_ocio_del on pool_ocio for delete using (owner_id = auth.uid());
+
 -- logro
 alter table logro enable row level security;
 create policy logro_sel on logro for select using (owner_id = auth.uid());

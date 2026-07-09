@@ -16,7 +16,7 @@ const rlsSql = readFileSync(resolve(SUPA_DIR, 'rls.sql'), 'utf8');
 // All tables we own (drop order = children before parents for --reset).
 const TABLES = [
   'obra_creador', 'entrada_acompanante', 'obra_coleccion', 'entrada_etiqueta', 'obra_etiqueta',
-  'titulo_desbloqueado', 'logro_desbloqueado', 'momento_canon', 'perfil_usuario',
+  'titulo_desbloqueado', 'logro_desbloqueado', 'momento_canon', 'perfil_usuario', 'pool_ocio',
   'entrada', 'obra', 'titulo', 'logro', 'coleccion', 'etiqueta', 'etapa', 'persona', 'plataforma', 'meta'
 ];
 
@@ -30,6 +30,7 @@ async function main() {
     console.log('  --reset: drop de tablas existentes…');
     for (const t of TABLES) await pg.query(`drop table if exists ${t} cascade`);
     await pg.query('drop function if exists set_actualizado_en() cascade');
+    await pg.query('drop function if exists pool_ocio_limite() cascade');
   }
 
   console.log('  Aplicando schema.sql…');
@@ -51,7 +52,7 @@ async function main() {
   const { rows: pol } = await pg.query(
     `select count(*)::int n from pg_policies where schemaname='public'`
   );
-  console.log(`  Políticas creadas: ${pol[0].n} (esperado 76 = 19 tablas × 4 comandos)`);
+  console.log(`  Políticas creadas: ${pol[0].n} (esperado 80 = 20 tablas × 4 comandos)`);
 
   await pg.end();
 

@@ -166,6 +166,49 @@ export async function lookupObra(titulo, categoria, anio) {
   return { exists: true, obraId: match.id, titulo: match.titulo, anio_obra: match.anio_obra, creador: match.creador, generos, n_entradas: count ?? 0 };
 }
 
+// ── LA INDECISIÓN (pool_ocio, §11.63) ────────────────────────────────────────
+// Autocompletado del "añadir al pool": LISTA de obras por título (ilike server-side sobre las
+// ~4.600 obras — el store del Diario son entradas y está acotado; la tabla es la fuente).
+export async function buscarObras(q, limit = 6) {
+  const t = String(q || '').trim();
+  if (t.length < 2) return [];
+  const esc = t.replace(/[\\%_]/g, (m) => '\\' + m);
+  const { data, error } = await supabase
+    .from('obra')
+    .select('id, titulo, anio_obra, categoria, imagen_url')
+    .ilike('titulo', `%${esc}%`)
+    .order('titulo')
+    .limit(limit);
+  fail(error, 'buscarObras');
+  return data || [];
+}
+
+// Pool completo con la obra embebida (carátula/categoría para las tarjetas flotantes).
+// Lectura PostgREST directa (RLS filtra al dueño); orden estable por antigüedad.
+export async function poolList() {
+  const { data, error } = await supabase
+    .from('pool_ocio')
+    .select('id, tipo, obra_id, texto_libre, energia, foco, tiempo, creado_en, obra(titulo, categoria, anio_obra, imagen_url)')
+    .order('creado_en', { ascending: true })
+    .order('id', { ascending: true });
+  fail(error, 'poolList');
+  return data || [];
+}
+
+// Añadir con LÍMITE 10 SERVER-SIDE; payload = { tipo, obra_id | texto_libre, energia, foco,
+// tiempo, sale_id? } — sale_id hace el intercambio atómico de "hacer sitio".
+export async function poolAgregar(payload) {
+  const { data, error } = await supabase.rpc('ocio_pool_agregar', { p: payload });
+  fail(error, 'poolAgregar');
+  return data;
+}
+
+export async function poolQuitar(id) {
+  const { data, error } = await supabase.rpc('ocio_pool_quitar', { p_id: id });
+  fail(error, 'poolQuitar');
+  return data;
+}
+
 // Slugs de género existentes (taxonomía 'genero') para el datalist del registro — el usuario elige
 // de la taxonomía canónica (en español) en vez de inventar variantes.
 export async function listGeneros() {
