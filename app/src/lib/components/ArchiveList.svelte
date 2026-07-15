@@ -4,6 +4,7 @@
   import ShelfGrid from './ShelfGrid.svelte';
   import { archiveEntries, archiveFilters, archiveView, filterOpts, dbStatus } from '$lib/stores.js';
   import { setFilters, openEntryDetail } from '$lib/boot-supabase.js';
+  import { buscarPersonas } from '$lib/db/supabase-data.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS } from '$lib/db/queries.js';
   import { CAT_COLOR } from '$lib/theme.js';
   import { fmtFecha, fmtValoracion } from '$lib/format.js';
@@ -15,6 +16,63 @@
     searchTimer = setTimeout(() => setFilters({ search: v }), 220);
   }
   const label = (map, v) => map[v] ?? v ?? '—';
+
+  // AÑO de la obra (§11.65): solo los años que existen en el archivo, agrupados por década
+  // (optgroup nativo — legible sin inventar un widget) de la más reciente a la más antigua
+  let decadas = $derived.by(() => {
+    const by = new Map();
+    for (const a of $filterOpts.anios ?? []) {
+      const dec = Math.floor(a / 10) * 10;
+      if (!by.has(dec)) by.set(dec, []);
+      by.get(dec).push(a);
+    }
+    return [...by.entries()]
+      .sort((x, y) => y[0] - x[0])
+      .map(([dec, anios]) => ({ label: `${dec}s`, anios: anios.sort((a, b) => b - a) }));
+  });
+
+  // CREADOR (§11.65): autocompletado contra personas (patrón de La Indecisión — debounce +
+  // guard de secuencia contra respuestas rancias); elegido → chip con ✕ que restaura
+  let cq = $state('');
+  let csug = $state([]);
+  let cSeq = 0;
+  let cTimer;
+  function onCreadorInput() {
+    clearTimeout(cTimer);
+    const t = cq.trim();
+    if (t.length < 2) {
+      cSeq++; // invalida búsquedas ya despachadas
+      csug = [];
+      return;
+    }
+    const seq = ++cSeq;
+    cTimer = setTimeout(async () => {
+      try {
+        const r = await buscarPersonas(t);
+        if (seq === cSeq) csug = r;
+      } catch {
+        /* la búsqueda no bloquea el filtrado */
+      }
+    }, 250);
+  }
+  function pickCreador(p) {
+    cq = '';
+    csug = [];
+    cSeq++;
+    setFilters({ creador: { id: p.id, nombre: p.nombre } });
+  }
+  // cierra e INVALIDA: sin cSeq++/clearTimeout una búsqueda ya despachada re-abriría el
+  // desplegable huérfano tras el blur. Las filas hacen preventDefault en pointerdown (el input
+  // no pierde el foco al tocarlas) → elegir va por click (teclado incluido) y el blur real
+  // puede cerrar de inmediato.
+  function closeSug() {
+    clearTimeout(cTimer);
+    cSeq++;
+    csug = [];
+  }
+  function onCreadorKey(e) {
+    if (e.key === 'Escape') closeSug();
+  }
   const col = (cat) => CAT_COLOR[cat] ?? { c: 'var(--ink-3)', tint: 'var(--ink-2)' };
   // La lista solo vuelve al principio cuando cambian los FILTROS — no al puntuar una entrada.
   let filterKey = $derived(JSON.stringify($archiveFilters));
@@ -68,15 +126,49 @@
       <option value="">Toda categoría</option>
       {#each $filterOpts.categorias as c}<option value={c}>{label(CATEGORIA_LABELS, c)}</option>{/each}
     </select>
-    <select aria-label="Origen" value={$archiveFilters.origen} onchange={(e) => setFilters({ origen: e.currentTarget.value })}>
-      <option value="">Todo origen</option>
-      {#each $filterOpts.origenes as o}<option value={o}>{label(ORIGEN_LABELS, o)}</option>{/each}
+    <select aria-label="Año de la obra" value={String($archiveFilters.anio ?? '')} onchange={(e) => setFilters({ anio: e.currentTarget.value })}>
+      <option value="">Cualquier año</option>
+      {#if $archiveFilters.anio && !($filterOpts.anios ?? []).includes(Math.trunc(Number($archiveFilters.anio)))}
+        <!-- el año activo desapareció de la lista (última entrada de ese año borrada): la opción
+             huérfana se pinta explícita para que el select no quede en blanco con el filtro vivo -->
+        <option value={String($archiveFilters.anio)}>{$archiveFilters.anio}</option>
+      {/if}
+      {#each decadas as d (d.label)}
+        <optgroup label={d.label}>
+          {#each d.anios as a (a)}<option value={String(a)}>{a}</option>{/each}
+        </optgroup>
+      {/each}
     </select>
-    <select aria-label="Tipo de fecha" value={$archiveFilters.fecha_tipo} onchange={(e) => setFilters({ fecha_tipo: e.currentTarget.value })}>
-      <option value="">Cualquier fecha</option>
-      <option value="fecha_visionado">Fecha real (visionado)</option>
-      <option value="fecha_voto">Fecha de voto (aprox.)</option>
-    </select>
+    <div class="creador-filter">
+      {#if $archiveFilters.creador}
+        <button type="button" class="creador-chip" onclick={() => setFilters({ creador: null })} title="{$archiveFilters.creador.nombre} — quitar el filtro" aria-label="Quitar el filtro de creador">
+          <span class="nm">{$archiveFilters.creador.nombre}</span><span class="x">✕</span>
+        </button>
+      {:else}
+        <input
+          class="creador-q"
+          type="search"
+          placeholder="Creador…"
+          bind:value={cq}
+          oninput={onCreadorInput}
+          onblur={closeSug}
+          onkeydown={onCreadorKey}
+          aria-label="Filtrar por creador"
+          autocomplete="off"
+        />
+        {#if csug.length}
+          <div class="csug" role="listbox">
+            {#each csug as p (p.id)}
+              <!-- preventDefault en pointerdown: el input CONSERVA el foco (el blur no se
+                   adelanta) y NO se elige en el touchstart (un scroll que empiece aquí no
+                   aplica nada — regla 12); la selección va por click, que también dispara
+                   el teclado (Enter sobre el botón) -->
+              <button type="button" class="csug-row" role="option" aria-selected="false" onpointerdown={(e) => e.preventDefault()} onclick={() => pickCreador(p)}>{p.nombre}</button>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    </div>
     <button
       type="button"
       class="encurso-filter"
@@ -209,6 +301,76 @@
     outline: none;
     border-color: var(--accent);
   }
+  /* filtro por CREADOR (§11.65): input con desplegable propio; elegido → chip con ✕ */
+  .creador-filter {
+    position: relative;
+    isolation: isolate; /* regla 9: el z del desplegable no compite fuera */
+    z-index: 7; /* SIN esto el contexto pinta en orden de árbol y las VISTAS (posteriores) taparían el desplegable */
+    flex: 1 1 9rem;
+    min-width: 0;
+  }
+  .creador-q {
+    width: 100%;
+    font-size: 0.85rem;
+  }
+  .csug {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 6;
+    background: #100e0b;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.45);
+  }
+  .csug-row {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--line);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    padding: 0.5rem 0.7rem;
+    cursor: pointer;
+  }
+  .csug-row:first-child {
+    border-top: none;
+  }
+  .csug-row:hover {
+    background: #171410;
+  }
+  .creador-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    max-width: 100%;
+    background: #171410;
+    border: 1px solid rgba(242, 166, 90, 0.45);
+    color: var(--gold);
+    border-radius: 999px;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  /* el ellipsis va en el SPAN del nombre: text-overflow no aplica a un contenedor flex, y sin
+     min-width:0 el nombre (nowrap) no encogería y empujaría el ✕ fuera del recorte */
+  .creador-chip .nm {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .creador-chip .x {
+    color: var(--ink-3);
+    font-size: 0.75rem;
+    flex: none;
+  }
   .count {
     color: var(--label);
     font-family: var(--font-data);
@@ -290,6 +452,9 @@
     }
     .selects select {
       flex: 0 1 auto;
+    }
+    .creador-filter {
+      flex: 0 1 12rem;
     }
     /* el toggle de vista, a la derecha del todo */
     .viewtoggle {

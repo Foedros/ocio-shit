@@ -196,16 +196,29 @@ export async function exportAction() {
 export async function refreshArchive() {
   try {
     const filters = get(archiveFilters);
-    const [entries, options] = await Promise.all([data.listEntries(filters), data.filterOptions()]);
+    // el filtro de creador vive en el store como {id, nombre} (la UI muestra el nombre);
+    // a la query solo baja el id (§11.65)
+    const [entries, options] = await Promise.all([
+      data.listEntries({ ...filters, creador_id: filters.creador?.id ?? null }),
+      data.filterOptions()
+    ]);
     archiveEntries.set(entries);
     filterOpts.set(options);
+    return true;
   } catch (err) {
     logEvent('warn', `No se pudo cargar el archivo: ${err.message}`);
+    return false;
   }
 }
 export async function setFilters(patch) {
+  const prev = get(archiveFilters);
   archiveFilters.update((f) => ({ ...f, ...patch }));
-  await refreshArchive();
+  if (!(await refreshArchive())) {
+    // sin red y sin caché para ese corte (§11.64/§11.65): NO fingir el filtro — la barra
+    // mostraría un filtro "activo" mientras la lista sigue con los resultados anteriores
+    archiveFilters.set(prev);
+    showToast('Sin conexión — el filtro no se pudo aplicar', 'error');
+  }
 }
 // Tanda 3 · "carátula que vuela": si el caller pasa fromEl (la <img> tocada en Estantería/
 // Galería), el detalle se abre con una View Transition desde esa carátula — los DATOS se

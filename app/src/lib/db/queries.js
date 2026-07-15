@@ -262,12 +262,23 @@ export function setImagen(adapter, obraId, url) {
 }
 
 /** Filtered list of entradas (joined with their obra). Returns minimal display rows. */
-export function listEntries(adapter, { categoria, origen, fecha_tipo, search, limit = 6000 } = {}) {
+// ESPEJO de la listEntries de producción (§11.65: + anio y creador_id; origen/fecha_tipo se
+// conservan aquí como superconjunto de la capa portable aunque la barra del Diario ya no los use)
+export function listEntries(adapter, { categoria, anio, creador_id, origen, fecha_tipo, search, limit = 6000 } = {}) {
   const where = [];
   const params = [];
   if (categoria) {
     where.push('o.categoria = ?');
     params.push(categoria);
+  }
+  if (anio !== '' && anio != null) {
+    where.push('o.anio_obra = ?');
+    params.push(Math.trunc(Number(anio)));
+  }
+  if (creador_id) {
+    // cualquier rol: basta con que la persona esté vinculada a la obra
+    where.push('EXISTS (SELECT 1 FROM obra_creador oc WHERE oc.obra_id = o.id AND oc.persona_id = ?)');
+    params.push(creador_id);
   }
   if (origen) {
     where.push("json_extract(e.metadata, '$.origen') = ?");

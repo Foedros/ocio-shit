@@ -122,18 +122,33 @@ async function fetchAll(buildQuery, { max = 100000, page = 1000 } = {}) {
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
-export async function listEntries({ categoria, origen, fecha_tipo, search, en_curso, con_resena, limit = 6000 } = {}) {
+// Filtros del Diario (§11.65): categoría · AÑO de la obra · CREADOR (persona, cualquier rol) ·
+// en curso · con reseña · búsqueda. Los filtros de origen/fecha_tipo se RETIRARON de la barra
+// (siguen visibles como metadatos en cada fila). Todo server-side y combinable.
+export async function listEntries({ categoria, anio, creador_id, search, en_curso, con_resena, limit = 6000 } = {}) {
   const build = () => {
-    let q = supabase.from('entrada').select(ENTRY_SELECT);
+    // el filtro por CREADOR exige encadenar obra→obra_creador con !inner (PostgREST filtra por
+    // recurso embebido y NO duplica la entrada aunque la persona tenga dos roles en la obra);
+    // el embed extra solo se añade cuando aplica — la forma de la respuesta no cambia para el resto
+    const sel = creador_id
+      ? ENTRY_SELECT.replace('obra!inner(', 'obra!inner(obra_creador!inner(persona_id), ')
+      : ENTRY_SELECT;
+    let q = supabase.from('entrada').select(sel);
     if (categoria) q = q.eq('obra.categoria', categoria);
-    if (origen) q = q.eq('metadata->>origen', origen);
-    if (fecha_tipo) q = q.eq('metadata->>fecha_tipo', fecha_tipo);
+    if (anio !== '' && anio != null) q = q.eq('obra.anio_obra', Math.trunc(Number(anio)));
+    if (creador_id) q = q.eq('obra.obra_creador.persona_id', creador_id);
     if (en_curso) q = q.eq('obra.en_curso', true); // solo series que tengo a medias (para retomarlas)
     if (con_resena) q = q.not('nota', 'is', null).neq('nota', ''); // solo entradas con reseña personal
     if (search && search.trim()) q = q.ilike('obra.titulo', `%${search.trim().replace(/[%_]/g, (c) => '\\' + c)}%`);
     return q.order('fecha', { ascending: false, nullsFirst: false }).order('id', { ascending: true });
   };
   return (await fetchAll(build, { max: limit })).map(mapEntry);
+}
+
+// Autocompletado del filtro por CREADOR del Diario (§11.65): LISTA de personas por nombre
+// (server-side sobre las ~3.150; mismo patrón y ranking que buscarObras).
+export async function buscarPersonas(q, limit = 8) {
+  return buscarPorNombre('persona', 'nombre', 'id, nombre', q, limit, 'buscarPersonas');
 }
 
 export async function getEntry(entradaId) {
@@ -191,20 +206,34 @@ export async function lookupObra(titulo, categoria, anio) {
 }
 
 // ── LA INDECISIÓN (pool_ocio, §11.63) ────────────────────────────────────────
-// Autocompletado del "añadir al pool": LISTA de obras por título (ilike server-side sobre las
-// ~4.600 obras — el store del Diario son entradas y está acotado; la tabla es la fuente).
-export async function buscarObras(q, limit = 6) {
+// Autocompletado por nombre con RANKING de prefijo: los que EMPIEZAN por el texto van primero
+// (quien teclea "woody" espera a Woody Allen por delante de Dennis Woodyard), completado con los
+// que lo contienen. Dos consultas pequeñas server-side (debounced en la UI).
+async function buscarPorNombre(tabla, columna, select, q, limit, ctx) {
   const t = String(q || '').trim();
   if (t.length < 2) return [];
   const esc = t.replace(/[\\%_]/g, (m) => '\\' + m);
-  const { data, error } = await supabase
-    .from('obra')
-    .select('id, titulo, anio_obra, categoria, imagen_url')
-    .ilike('titulo', `%${esc}%`)
-    .order('titulo')
-    .limit(limit);
-  fail(error, 'buscarObras');
-  return data || [];
+  const pre = await supabase.from(tabla).select(select).ilike(columna, `${esc}%`).order(columna).limit(limit);
+  fail(pre.error, ctx);
+  let rows = pre.data ?? [];
+  if (rows.length < limit) {
+    const resto = await supabase
+      .from(tabla)
+      .select(select)
+      .ilike(columna, `%${esc}%`)
+      .not(columna, 'ilike', `${esc}%`)
+      .order(columna)
+      .limit(limit - rows.length);
+    fail(resto.error, ctx);
+    rows = rows.concat(resto.data ?? []);
+  }
+  return rows;
+}
+
+// Autocompletado del "añadir al pool" (§11.63): LISTA de obras por título (server-side sobre las
+// ~4.600 obras — el store del Diario son entradas y está acotado; la tabla es la fuente).
+export async function buscarObras(q, limit = 6) {
+  return buscarPorNombre('obra', 'titulo', 'id, titulo, anio_obra, categoria, imagen_url', q, limit, 'buscarObras');
 }
 
 // Pool completo con la obra embebida (carátula/categoría para las tarjetas flotantes).
@@ -244,7 +273,7 @@ export async function listGeneros() {
 export async function filterOptions() {
   const { data, error } = await supabase.rpc('ocio_filter_options');
   fail(error, 'filterOptions');
-  return { categorias: data.categorias ?? [], origenes: data.origenes ?? [], fecha_tipos: data.fecha_tipos ?? [] };
+  return { categorias: data.categorias ?? [], origenes: data.origenes ?? [], fecha_tipos: data.fecha_tipos ?? [], anios: data.anios ?? [] };
 }
 
 export async function counts() {

@@ -225,7 +225,12 @@ as $$
     'origenes',    (select coalesce(jsonb_agg(distinct (metadata->>'origen') order by (metadata->>'origen')), '[]'::jsonb)
                       from entrada where metadata->>'origen' is not null),
     'fecha_tipos', (select coalesce(jsonb_agg(distinct (metadata->>'fecha_tipo') order by (metadata->>'fecha_tipo')), '[]'::jsonb)
-                      from entrada where metadata->>'fecha_tipo' is not null));
+                      from entrada where metadata->>'fecha_tipo' is not null),
+    -- filtro por AÑO del Diario (§11.65): solo años con ENTRADAS (el archivo son entradas —
+    -- una obra de inventario sin consumo no debe ofrecer un año que garantiza 0 resultados;
+    -- mismo dominio que origenes/fecha_tipos), desc
+    'anios',       (select coalesce(jsonb_agg(distinct o.anio_obra order by o.anio_obra desc), '[]'::jsonb)
+                      from entrada e join obra o on o.id = e.obra_id where o.anio_obra is not null));
 $$;
 
 -- ── Colecciones (escritura) — crear / materializar (compilador en runtime) / R1 ─────────────
