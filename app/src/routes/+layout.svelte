@@ -1,5 +1,47 @@
 <script>
+  import { onMount } from 'svelte';
+  import { offline } from '$lib/stores.js';
+
   let { children } = $props();
+
+  // ── MODO OFFLINE (§11.64): chip discreto "Sin conexión · datos de …" cuando el service
+  // worker sirve lecturas de caché sin red (mensaje 'ocio:sin-red' con el timestamp de lo
+  // servido) o el navegador reporta offline. Se retira al revalidar ('ocio:red') o al volver
+  // la red. Formato de fecha MANUAL (regla 7: nada de ICU). ──
+  const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const p2 = (n) => String(n).padStart(2, '0');
+  function horaDe(ts) {
+    const d = new Date(ts);
+    const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+    return d.toDateString() === new Date().toDateString() ? hm : `${d.getDate()} ${MES[d.getMonth()]} · ${hm}`;
+  }
+  let staleAt = null; // último timestamp servido de caché (persistimos el dato entre avisos)
+  onMount(() => {
+    const onMsg = (e) => {
+      const m = e.data;
+      if (m?.type === 'ocio:sin-red') {
+        staleAt = m.at ?? staleAt;
+        offline.set({ at: staleAt });
+      } else if (m?.type === 'ocio:red') {
+        staleAt = null; // que un episodio offline NUEVO no muestre la hora del anterior
+        offline.set(null);
+      }
+    };
+    const onOff = () => offline.set({ at: staleAt });
+    const onOn = () => {
+      staleAt = null;
+      offline.set(null);
+    };
+    navigator.serviceWorker?.addEventListener('message', onMsg);
+    window.addEventListener('offline', onOff);
+    window.addEventListener('online', onOn);
+    if (navigator.onLine === false) onOff();
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onMsg);
+      window.removeEventListener('offline', onOff);
+      window.removeEventListener('online', onOn);
+    };
+  });
 </script>
 
 <svelte:head>
@@ -20,7 +62,35 @@
   </main>
 </div>
 
+{#if $offline}
+  <div class="offline-chip" role="status">
+    SIN CONEXIÓN{#if $offline.at}&nbsp;· DATOS DE {horaDe($offline.at)}{/if}
+  </div>
+{/if}
+
 <style>
+  /* Chip offline (§11.64): discreto, abajo-centro, NO bloquea (pointer-events none).
+     z-35: informativo — sobre el mhead (30), bajo el FAB (40) y todo lo modal. */
+  .offline-chip {
+    position: fixed;
+    bottom: max(14px, env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 35;
+    pointer-events: none;
+    background: rgba(20, 17, 13, 0.92);
+    border: 1px solid rgba(201, 162, 63, 0.35);
+    color: var(--gold);
+    font-family: var(--font-data);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    padding: 6px 12px;
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    white-space: nowrap;
+  }
+
   /* Tokens from diseno/tokens.json (dark = home mode). Custom font files are deferred to
      Sprint 4; the stacks fall back to system serif/sans/mono for now. */
   :global(:root) {

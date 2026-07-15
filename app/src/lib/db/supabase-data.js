@@ -16,17 +16,36 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
 });
 
+// fallo de RED (fetch caído / sin conexión) — compartido por fail() y los wrappers de auth
+const esRed = (msg) => /failed to fetch|load failed|networkerror|fetch failed|network request failed/i.test(msg || '');
+
 // ── Auth (single user) ──────────────────────────────────────────────────────
 export async function signIn(email, password) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(esRed(error.message) ? 'Sin conexión — el acceso necesita red.' : error.message);
 }
 export async function signOut() {
-  await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut();
+  // sin red el revoke falla y auth-js CONSERVA la sesión local: avisar en vez de fingir el cierre
+  if (error) throw new Error(esRed(error.message) ? 'Sin conexión — cerrar sesión necesita red.' : error.message);
 }
 export async function getSession() {
-  const { data } = await supabase.auth.getSession();
-  return data.session;
+  const { data, error } = await supabase.auth.getSession();
+  // authError ≠ null cuando el refresh del token falló (p. ej. SIN RED con el access caducado):
+  // la sesión sigue en storage pero session llega null — el boot decide el modo lectura offline.
+  return { session: data.session, authError: error ?? null };
+}
+// Sesión PERSISTIDA tal cual está en storage, aunque el access token haya CADUCADO. SOLO para el
+// modo lectura offline (§11.64): sin red no se puede refrescar y getSession() devuelve null.
+export function getLocalSession() {
+  try {
+    const ref = new URL(SUPABASE_URL).hostname.split('.')[0];
+    const raw = localStorage.getItem(`sb-${ref}-auth-token`);
+    const s = raw ? JSON.parse(raw) : null;
+    return s?.user ? s : null;
+  } catch {
+    return null;
+  }
 }
 // El user_metadata vive en el JWT de la sesión, que puede estar CADUCADO (un cambio out-of-band —
 // p. ej. el nombre editado en otra sesión/dispositivo— no se refleja hasta que el token se refresca).
@@ -58,7 +77,12 @@ export async function setTabTx(tab_tx) {
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 function fail(error, ctx) {
-  if (error) throw new Error(`${ctx}: ${error.message}`);
+  if (error) {
+    // fallo de RED (fetch caído, sin conexión) → mensaje humano; el resto pasa tal cual.
+    // Las lecturas offline no suelen llegar aquí (el SW sirve caché); esto cubre escrituras
+    // y lecturas nunca cacheadas: degradación limpia, nunca un "TypeError: Failed to fetch".
+    throw new Error(`${ctx}: ${esRed(error.message) ? 'Sin conexión — esta acción necesita red.' : error.message}`);
+  }
 }
 // entrada (+embedded obra +jsonb metadata) -> the flat shape queries.js produced.
 function mapEntry(r) {

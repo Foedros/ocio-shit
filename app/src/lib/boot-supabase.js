@@ -35,8 +35,36 @@ export async function boot() {
   // React to sign-in/out for the lifetime of the tab. INITIAL_SESSION lo gestiona el arranque de
   // abajo (con el user fresco); aquí solo SIGNED_IN/OUT, USER_UPDATED, TOKEN_REFRESHED (donde el
   // session.user ya viene fresco) — evita pisar el user fresco con el del JWT cacheado.
-  data.onAuthChange((session, event) => { if (event !== 'INITIAL_SESSION') applySession(session, event); });
-  const session = await data.getSession();
+  data.onAuthChange((session, event) => {
+    if (event === 'SIGNED_OUT') {
+      // MODO OFFLINE (§11.64): el signOut purga las cachés de datos/carátulas del service worker
+      // (datos personales en Cache Storage: en un navegador compartido cerrar sesión debe vaciarlos)
+      try {
+        navigator.serviceWorker?.controller?.postMessage({ type: 'ocio:purga' });
+      } catch {
+        /* sin SW */
+      }
+    }
+    if (event !== 'INITIAL_SESSION') applySession(session, event);
+  });
+  const { session, authError } = await data.getSession();
+  // MODO LECTURA OFFLINE (§11.64): con el access token CADUCADO (>1h) y sin red, el refresh falla
+  // y getSession() da null aunque la sesión persista en storage — el caso de uso principal (abrir
+  // la app al día siguiente sin cobertura) moriría en la pantalla de login con el caché intacto.
+  // Si hay sesión local y el fallo es de RED (no un signOut real), se arranca en SOLO LECTURA:
+  // el SW sirve las lecturas de su caché; canWrite exige session viva → sin flujos de escritura.
+  // Al volver la red, autoRefreshToken refresca y TOKEN_REFRESHED re-aplica la sesión completa.
+  if (!session) {
+    const local = data.getLocalSession();
+    const sinRed = navigator.onLine === false || /fetch|network|load failed|retryable/i.test(`${authError?.name ?? ''} ${authError?.message ?? ''}`);
+    if (local && sinRed) {
+      auth.set({ session: null, user: local.user, ready: true });
+      role.set('init');
+      await loadEverything();
+      busy.set(null);
+      return;
+    }
+  }
   // La sesión RESTAURADA trae el user_metadata del JWT cacheado, que puede estar caducado (el nombre
   // pudo editarse en otra sesión/dispositivo). Traer el user FRESCO del servidor — FUERA del callback
   // de onAuthChange (allí provocaría deadlock del auth-lock). En SIGNED_IN/USER_UPDATED el session.user
@@ -92,7 +120,13 @@ export async function signInAction(email, password) {
 }
 
 export async function signOutAction() {
-  await data.signOut();
+  try {
+    await data.signOut();
+  } catch (err) {
+    // sin red el revoke falla y la sesión local SIGUE viva: avisar, no fingir el cierre
+    logEvent('error', `No se pudo cerrar sesión: ${err.message}`);
+    showToast(/sin conexión/i.test(err.message) ? 'Sin conexión — cerrar sesión necesita red.' : 'No se pudo cerrar sesión.', 'error');
+  }
 }
 
 // Cambiar el nombre de display (user_metadata). Optimista: actualiza el auth store al momento; el

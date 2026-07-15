@@ -172,8 +172,14 @@
       showToast(`Entrada guardada${res.obraCreated ? '' : ' · reconsumo ' + res.numReconsumo}`);
       reset();
       onsaved?.();
-    } catch {
-      showToast('No se pudo guardar. Reintenta.', 'error');
+    } catch (e) {
+      // sin red el registro NO se pierde: el formulario conserva lo escrito (reset solo tras éxito)
+      showToast(
+        /sin conexión/i.test(e?.message ?? '')
+          ? 'Sin conexión — el registro necesita red. Lo escrito se conserva.'
+          : 'No se pudo guardar. Reintenta.',
+        'error'
+      );
     }
   }
 </script>

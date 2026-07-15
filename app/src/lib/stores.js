@@ -35,6 +35,10 @@ export const detail = writable(null); // { kind:'obra'|'entrada', data } selecte
 export const colecciones = writable([]); // list of collections with n_obras
 export const coleccionSel = writable(null); // { coleccion, obras } currently opened
 export const toast = writable(null); // { msg, kind:'ok'|'error' } transient confirmation
+// MODO OFFLINE (§11.64): null = con red · { at } = sin red (at = timestamp de los datos servidos
+// de caché por el service worker, o null si aún no se sirvió nada). Lo alimentan los mensajes
+// del SW ('ocio:sin-red'/'ocio:red') y los eventos online/offline del navegador (+layout).
+export const offline = writable(null);
 
 let toastTimer;
 export function showToast(msg, kind = 'ok') {
