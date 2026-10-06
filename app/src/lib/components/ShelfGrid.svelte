@@ -40,15 +40,32 @@
     else if (sawDetail) { sawDetail = false; takenKey = null; }
   });
 
+  // ancho de la barra de scroll del SISTEMA (≈15-17px en Windows; 0 con barras overlay: iOS,
+  // macOS, Android). Se re-mide en cada resize: cambia en CSS px con el zoom del navegador.
+  function scrollbarWidth() {
+    const d = document.createElement('div');
+    d.style.cssText = 'position:absolute;top:-9999px;width:100px;height:100px;overflow-y:scroll;';
+    document.body.appendChild(d);
+    const w = d.offsetWidth - d.clientWidth;
+    d.remove();
+    return w;
+  }
   $effect(() => {
     if (!viewport) return;
-    const ro = new ResizeObserver(() => {
-      width = viewport.clientWidth;
+    const cs = getComputedStyle(viewport);
+    const bordes = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+    // ancho ESTABLE = exterior − bordes − barra, ESTÉ O NO la barra visible (§11.67). Con
+    // clientWidth (que excluye la barra) había un bucle de realimentación: el contenido desborda
+    // → aparece la barra → ancho −15px → H más bajo (H sale del ancho) → deja de desbordar → se
+    // va la barra → ancho +15px → vuelve a desbordar… = la estantería VIBRABA a cada fotograma
+    // cuando el alto del contenido caía justo en el borde de la caja (p. ej. cómic + nota 9–10).
+    const medir = () => {
+      width = viewport.offsetWidth - bordes - scrollbarWidth();
       height = viewport.clientHeight;
-    });
+    };
+    const ro = new ResizeObserver(medir);
     ro.observe(viewport);
-    width = viewport.clientWidth;
-    height = viewport.clientHeight;
+    medir();
     return () => ro.disconnect();
   });
 
