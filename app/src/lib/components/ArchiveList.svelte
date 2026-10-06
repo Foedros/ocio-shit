@@ -73,6 +73,82 @@
   function onCreadorKey(e) {
     if (e.key === 'Escape') closeSug();
   }
+
+  // NOTA (§11.66): preajustes que TESELAN 0–10 en pasos de 0,5 (sin huecos ni solapes) + "sin
+  // nota" + RANGO PROPIO (dos campos de texto: coma europea a mano, regla 7 — un type=number
+  // mostraría "7.5" según el ICU del navegador). Rango INCLUSIVO; un extremo vacío = abierto.
+  const NOTA_PRESETS = [
+    { k: '9-10', min: 9, max: 10, label: '9 – 10' },
+    { k: '7-8.5', min: 7, max: 8.5, label: '7 – 8,5' },
+    { k: '5-6.5', min: 5, max: 6.5, label: '5 – 6,5' },
+    { k: 'lt5', min: null, max: 4.5, label: 'Menos de 5' }
+  ];
+  const fmtN = (v) => (v == null ? '' : String(v).replace('.', ','));
+  let notaCustom = $state(false); // el modo "rango propio" sigue visible aunque aún no haya valores
+  let nMin = $state('');
+  let nMax = $state('');
+  let nBad = $state(false);
+  let notaSel = $derived.by(() => {
+    const n = $archiveFilters.nota;
+    if (n?.sin) return 'sin';
+    if (notaCustom) return 'custom';
+    if (n) return NOTA_PRESETS.find((p) => p.min === n.min && p.max === n.max)?.k ?? 'custom';
+    return '';
+  });
+  function onNotaSel(e) {
+    const v = e.currentTarget.value;
+    clearTimeout(nTimer);
+    nBad = false;
+    if (v === 'custom') {
+      // al pasar de un preajuste a "rango propio" se precargan sus extremos para retocarlos
+      const n = $archiveFilters.nota;
+      nMin = n && !n.sin ? fmtN(n.min) : '';
+      nMax = n && !n.sin ? fmtN(n.max) : '';
+      notaCustom = true;
+      if (n?.sin) setFilters({ nota: null });
+      return;
+    }
+    notaCustom = false;
+    if (v === '') setFilters({ nota: null });
+    else if (v === 'sin') setFilters({ nota: { sin: true } });
+    else {
+      const p = NOTA_PRESETS.find((x) => x.k === v);
+      setFilters({ nota: { min: p.min, max: p.max } });
+    }
+  }
+  const parseN = (s) => {
+    const t = String(s).trim().replace(',', '.');
+    if (t === '') return null;
+    const v = Number(t);
+    return Number.isFinite(v) && v >= 0 && v <= 10 ? v : NaN;
+  };
+  let nTimer;
+  function applyCustom() {
+    clearTimeout(nTimer);
+    // al cambiar a otro modo, Svelte retira los campos y retirar un input ENFOCADO dispara su
+    // blur → sin esta guarda el rango viejo se re-aplicaría pisando el preajuste recién elegido
+    if (!notaCustom) return;
+    let a = parseN(nMin);
+    let b = parseN(nMax);
+    nBad = Number.isNaN(a) || Number.isNaN(b);
+    if (nBad) return; // fuera de 0–10 o no numérico: se marca, no se filtra
+    if (a != null && b != null && a > b) {
+      [a, b] = [b, a]; // "de 8 a 7" se entiende como 7–8
+      nMin = fmtN(a);
+      nMax = fmtN(b);
+    }
+    const cur = $archiveFilters.nota;
+    const next = a == null && b == null ? null : { min: a, max: b };
+    if (JSON.stringify(cur) === JSON.stringify(next)) return; // sin red de por medio si no cambia
+    setFilters({ nota: next });
+  }
+  function onNotaInput() {
+    clearTimeout(nTimer);
+    nTimer = setTimeout(applyCustom, 500);
+  }
+  function onNotaKey(e) {
+    if (e.key === 'Enter') applyCustom();
+  }
   const col = (cat) => CAT_COLOR[cat] ?? { c: 'var(--ink-3)', tint: 'var(--ink-2)' };
   // La lista solo vuelve al principio cuando cambian los FILTROS — no al puntuar una entrada.
   let filterKey = $derived(JSON.stringify($archiveFilters));
@@ -169,6 +245,39 @@
         {/if}
       {/if}
     </div>
+    <select aria-label="Nota" value={notaSel} onchange={onNotaSel}>
+      <option value="">Cualquier nota</option>
+      {#each NOTA_PRESETS as p (p.k)}<option value={p.k}>{p.label}</option>{/each}
+      <option value="sin">Sin nota</option>
+      <option value="custom">Rango propio…</option>
+    </select>
+    {#if notaSel === 'custom'}
+      <div class="nota-rango" class:bad={nBad}>
+        <input
+          type="text"
+          inputmode="decimal"
+          placeholder="0"
+          bind:value={nMin}
+          oninput={onNotaInput}
+          onkeydown={onNotaKey}
+          onblur={applyCustom}
+          aria-label="Nota mínima"
+          autocomplete="off"
+        />
+        <span class="nr-sep">a</span>
+        <input
+          type="text"
+          inputmode="decimal"
+          placeholder="10"
+          bind:value={nMax}
+          oninput={onNotaInput}
+          onkeydown={onNotaKey}
+          onblur={applyCustom}
+          aria-label="Nota máxima"
+          autocomplete="off"
+        />
+      </div>
+    {/if}
     <button
       type="button"
       class="encurso-filter"
@@ -371,6 +480,31 @@
     font-size: 0.75rem;
     flex: none;
   }
+  /* NOTA · rango propio (§11.66): "[7] a [8]" compacto, mismo lenguaje que los selects */
+  .nota-rango {
+    flex: 1 1 9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .nota-rango input {
+    flex: 1 1 0;
+    min-width: 0;
+    width: 3.6rem;
+    text-align: center;
+    font-family: var(--font-data);
+    font-size: 0.85rem;
+  }
+  .nota-rango.bad input {
+    border-color: var(--accent);
+  }
+  .nr-sep {
+    font-family: var(--font-data);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+  }
   .count {
     color: var(--label);
     font-family: var(--font-data);
@@ -438,7 +572,7 @@
       flex-direction: row;
       flex-wrap: wrap;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       padding-bottom: 16px;
       margin-bottom: 18px;
       border-bottom: 1px solid var(--line);
@@ -447,14 +581,24 @@
     .selects {
       display: contents;
     }
+    /* base PEQUEÑA que crece: con 8 controles (+ el rango propio) la fila de 1.192px solo cabe si
+       la búsqueda cede — crece hasta llenar el hueco sobrante (§11.66) */
     .search {
-      flex: 1 1 260px;
+      flex: 1 1 130px;
+      min-width: 130px;
     }
     .selects select {
       flex: 0 1 auto;
     }
     .creador-filter {
-      flex: 0 1 12rem;
+      flex: 0 1 9.5rem;
+    }
+    .nota-rango {
+      flex: 0 0 auto;
+    }
+    .nota-rango input {
+      flex: none;
+      width: 2.7rem;
     }
     /* el toggle de vista, a la derecha del todo */
     .viewtoggle {

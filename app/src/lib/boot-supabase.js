@@ -193,19 +193,32 @@ export async function exportAction() {
 }
 
 // ── Archive reads ────────────────────────────────────────────────────────────
+// token de petición: con varios filtros tocados seguidos hay refetches EN VUELO a la vez y gana la
+// última RESPUESTA, no la última PETICIÓN — una consulta vieja (p. ej. solo categoría) que llega
+// tarde pisaría el corte bueno (categoría + nota). Solo la petición más reciente escribe (§11.66).
+let archiveSeq = 0;
 export async function refreshArchive() {
+  const my = ++archiveSeq;
   try {
     const filters = get(archiveFilters);
     // el filtro de creador vive en el store como {id, nombre} (la UI muestra el nombre);
     // a la query solo baja el id (§11.65)
     const [entries, options] = await Promise.all([
-      data.listEntries({ ...filters, creador_id: filters.creador?.id ?? null }),
+      data.listEntries({
+        ...filters,
+        creador_id: filters.creador?.id ?? null,
+        nota_min: filters.nota?.min ?? null,
+        nota_max: filters.nota?.max ?? null,
+        sin_nota: !!filters.nota?.sin
+      }),
       data.filterOptions()
     ]);
+    if (my !== archiveSeq) return true; // respuesta obsoleta: ya hay una petición más nueva
     archiveEntries.set(entries);
     filterOpts.set(options);
     return true;
   } catch (err) {
+    if (my !== archiveSeq) return true; // el fallo de una petición obsoleta no revierte nada
     logEvent('warn', `No se pudo cargar el archivo: ${err.message}`);
     return false;
   }

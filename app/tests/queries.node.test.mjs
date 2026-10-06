@@ -66,6 +66,20 @@ const byVoto = listEntries(A, { fecha_tipo: 'fecha_voto' });
 const byVis = listEntries(A, { fecha_tipo: 'fecha_visionado' });
 check('filtro fecha_tipo separa visionado/voto', byVis.every((r) => r.fecha_tipo === 'fecha_visionado') && byVoto.every((r) => r.fecha_tipo === 'fecha_voto'));
 
+// NOTA (§11.66): rango inclusivo, 'sin nota', combinable con categoría, y los 4 preajustes
+// de la barra (9–10 · 7–8,5 · 5–6,5 · <5) + 'sin nota' TESELAN el archivo sin huecos ni solapes
+const r78 = listEntries(A, { nota_min: 7, nota_max: 8 });
+check('filtro nota 7–8 inclusivo y consistente', r78.length > 0 && r78.every((r) => r.valoracion >= 7 && r.valoracion <= 8), `(${r78.length})`);
+check('filtro nota incluye los extremos (7 y 8)', r78.some((r) => r.valoracion === 7 || r.valoracion === 8));
+const sinNota = listEntries(A, { sin_nota: true });
+check('filtro "sin nota" solo trae valoración NULL', sinNota.every((r) => r.valoracion == null), `(${sinNota.length})`);
+const soloMin = listEntries(A, { nota_min: 9 });
+check('rango abierto por arriba (≥9)', soloMin.every((r) => r.valoracion >= 9));
+const catNota = listEntries(A, { categoria: cat, nota_min: 7, nota_max: 8 });
+check(`nota 7–8 + categoria=${cat} combinan`, catNota.every((r) => r.categoria === cat && r.valoracion >= 7 && r.valoracion <= 8));
+const tesela = [[9, 10], [7, 8.5], [5, 6.5], [null, 4.5]].reduce((s, [a, b]) => s + listEntries(A, { nota_min: a, nota_max: b }).length, 0) + sinNota.length;
+check('preajustes + "sin nota" cubren TODO el archivo sin huecos', tesela === total, `(${tesela} vs ${total})`);
+
 // search
 const term = all[0].titulo.slice(0, 4);
 const bySearch = listEntries(A, { search: term });

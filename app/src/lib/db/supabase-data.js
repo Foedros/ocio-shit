@@ -122,10 +122,10 @@ async function fetchAll(buildQuery, { max = 100000, page = 1000 } = {}) {
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
-// Filtros del Diario (§11.65): categoría · AÑO de la obra · CREADOR (persona, cualquier rol) ·
+// Filtros del Diario (§11.65-66): categoría · AÑO de la obra · CREADOR (persona, cualquier rol) · NOTA ·
 // en curso · con reseña · búsqueda. Los filtros de origen/fecha_tipo se RETIRARON de la barra
 // (siguen visibles como metadatos en cada fila). Todo server-side y combinable.
-export async function listEntries({ categoria, anio, creador_id, search, en_curso, con_resena, limit = 6000 } = {}) {
+export async function listEntries({ categoria, anio, creador_id, nota_min, nota_max, sin_nota, search, en_curso, con_resena, limit = 6000 } = {}) {
   const build = () => {
     // el filtro por CREADOR exige encadenar obra→obra_creador con !inner (PostgREST filtra por
     // recurso embebido y NO duplica la entrada aunque la persona tenga dos roles en la obra);
@@ -137,6 +137,12 @@ export async function listEntries({ categoria, anio, creador_id, search, en_curs
     if (categoria) q = q.eq('obra.categoria', categoria);
     if (anio !== '' && anio != null) q = q.eq('obra.anio_obra', Math.trunc(Number(anio)));
     if (creador_id) q = q.eq('obra.obra_creador.persona_id', creador_id);
+    // NOTA (§11.66): rango INCLUSIVO sobre la valoración, o 'sin nota' (NULL)
+    if (sin_nota) q = q.is('valoracion', null);
+    else {
+      if (nota_min != null) q = q.gte('valoracion', Number(nota_min));
+      if (nota_max != null) q = q.lte('valoracion', Number(nota_max));
+    }
     if (en_curso) q = q.eq('obra.en_curso', true); // solo series que tengo a medias (para retomarlas)
     if (con_resena) q = q.not('nota', 'is', null).neq('nota', ''); // solo entradas con reseña personal
     if (search && search.trim()) q = q.ilike('obra.titulo', `%${search.trim().replace(/[%_]/g, (c) => '\\' + c)}%`);

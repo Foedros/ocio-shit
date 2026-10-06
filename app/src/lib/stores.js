@@ -25,7 +25,8 @@ export const displayName = derived(auth, ($a) => {
 export const role = writable('init'); // 'leader' | 'follower' | 'init'
 export const archiveEntries = writable([]); // current filtered list of entradas
 // filtros del Diario (§11.65): anio = año de la obra ('' = todos) · creador = {id, nombre}|null
-export const archiveFilters = writable({ categoria: '', anio: '', creador: null, search: '', en_curso: false, con_resena: false });
+// nota (§11.66) = null | { sin: true } | { min, max } (inclusivo; null = extremo abierto)
+export const archiveFilters = writable({ categoria: '', anio: '', creador: null, nota: null, search: '', en_curso: false, con_resena: false });
 export const archiveView = writable('estanteria'); // 'lista' | 'galeria' | 'estanteria' — toggle del Diario; ARRANCA en Estantería (persiste al navegar)
 // Constelación de creadores (Tanda 8): overlay a pantalla completa. Vive como store porque el
 // botón está en el Perfil (dentro de .page) pero el overlay se monta FUERA del wrapper con
