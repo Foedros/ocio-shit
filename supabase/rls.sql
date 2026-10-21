@@ -156,6 +156,23 @@ create policy obra_creador_ins on obra_creador for insert with check (owner_id =
 create policy obra_creador_upd on obra_creador for update using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 create policy obra_creador_del on obra_creador for delete using (owner_id = auth.uid());
 
+-- ── Permisos de la API de datos (Data API) ──────────────────────────────────
+-- Desde el 30-oct-2026 Supabase ya no da GRANT automático a las tablas nuevas de "public":
+-- sin esto, una BD recreada con schema.sql + rls.sql devolvería "permission denied" al frontend.
+-- Solo `authenticated` (el frontend con sesión); `anon` sigue sin acceso (el security-check espera 403/vacío).
+-- Las políticas de arriba siguen decidiendo qué filas ve cada uno. Tablas nombradas una a una para no tocar
+-- las de otros proyectos que compartan la base.
+grant select, insert, update, delete on
+  meta, plataforma, persona, etapa, obra, entrada, etiqueta, coleccion, pool_ocio, logro, logro_desbloqueado,
+  momento_canon, titulo, titulo_desbloqueado, perfil_usuario, obra_etiqueta, entrada_etiqueta, obra_coleccion,
+  entrada_acompanante, obra_creador
+to authenticated;
+grant all on
+  meta, plataforma, persona, etapa, obra, entrada, etiqueta, coleccion, pool_ocio, logro, logro_desbloqueado,
+  momento_canon, titulo, titulo_desbloqueado, perfil_usuario, obra_etiqueta, entrada_etiqueta, obra_coleccion,
+  entrada_acompanante, obra_creador
+to service_role;
+
 -- ── Endurecimiento de funciones expuestas (Security Advisor) ────────────────
 -- Si existe el event-trigger `rls_auto_enable` (safeguard de "auto-activar RLS en tablas
 -- nuevas", añadido FUERA de esta migración), revocar su EXECUTE de los roles públicos: como
