@@ -1,0 +1,45 @@
+name: Despertador Supabase
+
+# El plan gratuito de Supabase PAUSA el proyecto tras ~7 días sin actividad (pasó en oct-2026: la
+# app solo decía "Sin conexión"). Dos veces por semana se hace una consulta mínima por PostgREST,
+# que Supabase cuenta como actividad. Si falla, el run falla y GitHub avisa por correo: alerta
+# temprana de pausa o caída. Sin credenciales privadas: usa la clave PUBLISHABLE (pública por
+# diseño, ya va en el bundle); la RLS le devuelve 0 filas, pero la consulta llega a Postgres.
+# Si algún día se retira el SELECT de anon sobre `obra`, cambiar la tabla consultada.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1,4' # lunes y jueves, 06:17 UTC → huecos de 3-4 días, siempre < 7
+  workflow_dispatch:
+
+permissions:
+  actions: write # solo para el paso que evita que GitHub desactive este cron
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Consulta mínima a la base de datos
+        env:
+          URL: ${{ vars.PUBLIC_SUPABASE_URL }}
+          KEY: ${{ vars.PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+              -H "apikey: $KEY" "$URL/rest/v1/obra?select=id&limit=1" || true)
+            echo "intento $i → HTTP $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 20
+          done
+          echo "::error::Supabase no responde (¿proyecto pausado?). Reactívalo en el panel: Resume project."
+          exit 1
+
+      # En repos públicos GitHub desactiva los workflows programados tras 60 días sin actividad
+      # en el repo; re-habilitarlo desde el propio run lo mantiene vivo aunque no haya commits.
+      - name: Mantener vivo este cron
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/despertador.yml/enable"
