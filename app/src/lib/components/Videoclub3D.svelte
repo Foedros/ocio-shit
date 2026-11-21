@@ -92,10 +92,14 @@
     engine?.focus();
   }
 
-  // botones táctiles de andar: mantener pulsado
+  // botones de andar y de girar: mantener pulsado
   const andar = (v) => (e) => {
     e.preventDefault();
     engine?.setWalk(v);
+  };
+  const girar = (v) => (e) => {
+    e.preventDefault();
+    engine?.setTurn(v);
   };
 </script>
 
@@ -148,7 +152,7 @@
     {:else}
       <p class="hint">
         {#if coarse}
-          Arrastra para mirar · toca una carátula o el suelo
+          Arrastra o usa ◀ ▶ para girar · toca una carátula o el suelo
         {:else}
           W A S D o flechas para andar · arrastra para mirar · clic en una carátula
         {/if}
@@ -157,6 +161,14 @@
 
     <div class="pad">
       <button aria-label="Volver a la entrada" title="Volver a la entrada" onclick={() => engine?.goEntrance()}>⌂</button>
+      <button
+        class="hold"
+        aria-label="Girar a la izquierda"
+        onpointerdown={girar(1)}
+        onpointerup={girar(0)}
+        onpointercancel={girar(0)}
+        onpointerleave={girar(0)}
+        oncontextmenu={(e) => e.preventDefault()}>◀</button>
       <button
         class="hold"
         aria-label="Avanzar"
@@ -173,6 +185,14 @@
         onpointercancel={andar(0)}
         onpointerleave={andar(0)}
         oncontextmenu={(e) => e.preventDefault()}>▼</button>
+      <button
+        class="hold"
+        aria-label="Girar a la derecha"
+        onpointerdown={girar(-1)}
+        onpointerup={girar(0)}
+        onpointercancel={girar(0)}
+        onpointerleave={girar(0)}
+        oncontextmenu={(e) => e.preventDefault()}>▶</button>
     </div>
 
     <p class="attr">Carátulas: TMDB · Steam · Open Library</p>
@@ -341,7 +361,8 @@ imgs {stats.imgs} · fallos {stats.fallos} · cola {stats.pend}</pre>
     transform: translateX(-50%);
     bottom: calc(1.1rem + env(safe-area-inset-bottom));
     display: flex;
-    gap: 0.5rem;
+    gap: 0.45rem;
+    max-width: calc(100vw - 1rem);
   }
   .pad button {
     width: 3.1rem;

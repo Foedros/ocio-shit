@@ -167,6 +167,9 @@ export function createVideoclub(wrap, opts = {}) {
   let path = []; // tramos pendientes del desplazamiento guiado
   const keys = new Set();
   let walk = 0; // botones táctiles ▲▼
+  let spin = 0; // botones táctiles ◀▶ (+1 gira a la izquierda)
+  const LOOK_GAIN = 2.4; // sensibilidad del arrastre (1 = la escena sigue al dedo 1:1, demasiado lento)
+  const TURN_SPEED = 2.6; // rad/s con flechas o botones
   const stats = { pages: 0, lo: 0, hi: 0, imgs: 0, fallos: 0, pend: 0, fps: 0, draw: 0, n: 0, here: '' };
   const invalidate = () => (dirty = true);
 
@@ -972,7 +975,7 @@ export function createVideoclub(wrap, opts = {}) {
       stopGlide();
     }
     if (ptr.moved) {
-      const k = (camera.fov * Math.PI) / 180 / canvas.clientHeight; // arrastre 1:1 con la escena
+      const k = (LOOK_GAIN * (camera.fov * Math.PI)) / 180 / canvas.clientHeight;
       pos.yaw += (e.clientX - ptr.x) * k;
       pos.pitch += (e.clientY - ptr.y) * k;
       clampLook();
@@ -1046,11 +1049,11 @@ export function createVideoclub(wrap, opts = {}) {
     let moving = false;
     const f = (keys.has('w') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('arrowdown') ? 1 : 0) + walk;
     const s = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
-    const turn = (keys.has('arrowleft') ? 1 : 0) - (keys.has('arrowright') ? 1 : 0);
+    const turn = (keys.has('arrowleft') ? 1 : 0) - (keys.has('arrowright') ? 1 : 0) + spin;
     if (f || s || turn) {
       const v = (keys.has('shift') ? 4.4 : 2.2) * dt;
       tryMove((-Math.sin(pos.yaw) * f + Math.cos(pos.yaw) * s) * v, (-Math.cos(pos.yaw) * f - Math.sin(pos.yaw) * s) * v);
-      pos.yaw += turn * 1.9 * dt;
+      pos.yaw += turn * TURN_SPEED * dt;
       moving = true;
     }
     if (tween) {
@@ -1145,6 +1148,11 @@ export function createVideoclub(wrap, opts = {}) {
     flip: flipSelected,
     setWalk: (v) => {
       walk = v;
+      if (v) stopGlide();
+      invalidate();
+    },
+    setTurn: (v) => {
+      spin = v;
       if (v) stopGlide();
       invalidate();
     },
