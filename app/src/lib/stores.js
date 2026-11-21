@@ -32,7 +32,10 @@ export const archiveView = writable('estanteria'); // 'lista' | 'galeria' | 'est
 // botón está en el Perfil (dentro de .page) pero el overlay se monta FUERA del wrapper con
 // parallax (lección del FAB §11.43: will-change/transform crean containing block de los fixed).
 export const constelOpen = writable(false);
-export const filterOpts = writable({ categorias: [], origenes: [], fecha_tipos: [], anios: [] });
+// Videoclub 3D (prototipo): overlay a pantalla completa; el botón vive en el Diario (dentro de
+// .page) y el overlay se monta FUERA, igual que la Constelación.
+export const videoclubOpen = writable(false);
+export const filterOpts =writable({ categorias: [], origenes: [], fecha_tipos: [], anios: [] });
 export const detail = writable(null); // { kind:'obra'|'entrada', data } selected for the detail panel
 export const colecciones = writable([]); // list of collections with n_obras
 export const coleccionSel = writable(null); // { coleccion, obras } currently opened

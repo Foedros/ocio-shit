@@ -151,6 +151,37 @@ export async function listEntries({ categoria, anio, creador_id, nota_min, nota_
   return (await fetchAll(build, { max: limit })).map(mapEntry);
 }
 
+// VIDEOCLUB 3D (prototipo): las OBRAS consumidas de una categoría (≥1 entrada no pendiente) con
+// sus géneros y su nota más reciente. Una fila por obra (no por entrada): cada obra = un estuche.
+export async function videoclubObras(categoria) {
+  const build = () =>
+    supabase
+      .from('obra')
+      .select('id, titulo, anio_obra, imagen_url, obra_etiqueta(etiqueta(nombre, taxonomia)), entrada!inner(valoracion, fecha, estado)')
+      .eq('categoria', categoria)
+      .neq('entrada.estado', 'pendiente')
+      .order('titulo', { ascending: true })
+      .order('id', { ascending: true });
+  const rows = await fetchAll(build);
+  return rows.map((r) => {
+    // nota = la de la entrada puntuada más reciente (fecha NULL al final)
+    const punt = (r.entrada || [])
+      .filter((e) => e.valoracion != null)
+      .sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')));
+    return {
+      id: r.id,
+      titulo: r.titulo,
+      anio_obra: r.anio_obra ?? null,
+      imagen_url: r.imagen_url ?? null,
+      nota: punt.length ? Number(punt[0].valoracion) : null,
+      generos: (r.obra_etiqueta || [])
+        .map((x) => x.etiqueta)
+        .filter((e) => e && e.taxonomia === 'genero')
+        .map((e) => e.nombre)
+    };
+  });
+}
+
 // Autocompletado del filtro por CREADOR del Diario (§11.65): LISTA de personas por nombre
 // (server-side sobre las ~3.150; mismo patrón y ranking que buscarObras).
 export async function buscarPersonas(q, limit = 8) {

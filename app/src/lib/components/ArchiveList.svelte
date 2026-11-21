@@ -2,7 +2,7 @@
   import VirtualList from './VirtualList.svelte';
   import GalleryFlow from './GalleryFlow.svelte';
   import ShelfGrid from './ShelfGrid.svelte';
-  import { archiveEntries, archiveFilters, archiveView, filterOpts, dbStatus } from '$lib/stores.js';
+  import { archiveEntries, archiveFilters, archiveView, filterOpts, dbStatus, videoclubOpen } from '$lib/stores.js';
   import { setFilters, openEntryDetail } from '$lib/boot-supabase.js';
   import { buscarPersonas } from '$lib/db/supabase-data.js';
   import { CATEGORIA_LABELS, ORIGEN_LABELS } from '$lib/db/queries.js';
@@ -194,6 +194,10 @@
       </button>
       <button type="button" class="vbtn" class:on={$archiveView === 'estanteria'} onclick={() => archiveView.set('estanteria')} aria-label="Estantería" title="Estantería (videoclub)">
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.6v8.8M6 2.6v8.8M9.4 3.2l2.9 8.3" /><path d="M1.8 13.4h12.4" /></svg>
+      </button>
+      <!-- Videoclub 3D: no es una vista del Diario sino un recorrido a pantalla completa -->
+      <button type="button" class="vbtn" onclick={() => videoclubOpen.set(true)} aria-label="Videoclub 3D" title="Videoclub 3D">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8l5.4 3v6.4L8 14.2l-5.4-3V4.8z" /><path d="M2.6 4.8L8 7.9l5.4-3.1M8 7.9v6.3" /></svg>
       </button>
     </div>
   </div>

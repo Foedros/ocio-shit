@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { boot, signOutAction, exportAction, setDisplayNameAction, setTabTxAction, refreshArchive, refreshColecciones, __installTestHooks } from '$lib/boot-supabase.js';
-  import { auth, dbStatus, displayName, busy, constelOpen } from '$lib/stores.js';
+  import { auth, dbStatus, displayName, busy, constelOpen, videoclubOpen } from '$lib/stores.js';
   import ArchiveList from '$lib/components/ArchiveList.svelte';
   import DetailPanel from '$lib/components/DetailPanel.svelte';
   import ColeccionesPanel from '$lib/components/ColeccionesPanel.svelte';
@@ -335,6 +335,14 @@
 <!-- Constelación — SECCIÓN propia (§11.51) con presentación a pantalla completa, FUERA de
      .page (§11.43); bajo los sheets (z-50<60). view='constelacion' la monta (sync arriba). -->
 <Constelacion />
+
+<!-- Videoclub 3D (prototipo) — overlay a pantalla completa FUERA de .page (misma razón que la
+     Constelación). Import DINÁMICO: three.js solo se descarga al entrar. -->
+{#if $videoclubOpen}
+  {#await import('$lib/components/Videoclub3D.svelte') then { default: Videoclub3D }}
+    <Videoclub3D onclose={() => videoclubOpen.set(false)} />
+  {/await}
+{/if}
 
 <!-- MÓVIL: drawer lateral con las 9 secciones + "Cuenta y datos". Escritorio: oculto (CSS). -->
 <div class="drawer" class:open={drawerOpen} aria-hidden={!drawerOpen}>
